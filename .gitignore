@@ -67,3 +67,8 @@ vcpkg_installed/
 # test output & cache
 Testing/
 .cache/
+
+# Local reference copies of upstream game assets and tooling.
+# Copyrighted artwork extracted from the original game -- NEVER commit.
+# See PLAN.md section 10 and LEGACY.md section 15.
+reference/
