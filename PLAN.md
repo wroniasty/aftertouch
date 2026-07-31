@@ -22,7 +22,7 @@ undo later, so they are stated first.
 is not seeded and passed in. No floating point.
 
 It must be compilable, testable, and runnable headless with zero graphics
-dependencies. This is what lets you diff traces against a reference implementation,
+dependencies. This is what lets us diff traces against a reference implementation,
 unit test the physics, and later simulate every match in every league at speed
 instead of faking results with a statistical model.
 
@@ -94,12 +94,6 @@ C++20. Both MSVC 19.3x and AppleClang 15+ handle everything used here.
 
 ---
 
-## 2. Repository bootstrap
-
-```bash
-mkdir aftertouch && cd aftertouch
-git init
-```
 
 ### Vendored dependencies
 
@@ -140,8 +134,8 @@ Record the exact tags you picked in this file, right here, so future-you knows w
 changed when something breaks:
 
 ```
-SDL:     release-3.?.?
-imgui:   v1.??.?
+SDL:     release-3.4.12
+imgui:   v1.91.9b     # last of the 1.91 line, deliberately pre-1.92 font rework
 doctest: v2.4.11
 ```
 

@@ -1,0 +1,44 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": { "major": 3, "minor": 24, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}"
+    },
+    {
+      "name": "win-debug",
+      "inherits": "base",
+      "displayName": "Windows Debug (MSVC)",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    },
+    {
+      "name": "win-release",
+      "inherits": "win-debug",
+      "displayName": "Windows Release (MSVC)",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo" }
+    },
+    {
+      "name": "mac-debug",
+      "inherits": "base",
+      "displayName": "macOS Debug (AppleClang)",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" },
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    },
+    {
+      "name": "mac-release",
+      "inherits": "mac-debug",
+      "displayName": "macOS Release (AppleClang)",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "win-debug",   "configurePreset": "win-debug"   },
+    { "name": "win-release", "configurePreset": "win-release" },
+    { "name": "mac-debug",   "configurePreset": "mac-debug"   },
+    { "name": "mac-release", "configurePreset": "mac-release" }
+  ]
+}
