@@ -7,7 +7,10 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 if(MSVC)
-    add_compile_options(/W4 /permissive-)
+    # /utf-8: treat sources AND the execution charset as UTF-8. Without this,
+    # MSVC reads BOM-less files as the system code page and mangles every
+    # non-ASCII literal (the diacritic smoke test in main.cpp becomes mojibake).
+    add_compile_options(/W4 /permissive- /utf-8)
 else()
     add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
