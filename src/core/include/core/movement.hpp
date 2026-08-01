@@ -4,6 +4,7 @@
 #include "core/match_input.hpp"
 #include "core/match_state.hpp"
 #include "core/possession.hpp"
+#include "core/shooting.hpp"
 #include "core/trig.hpp"
 
 #include <algorithm>
@@ -379,25 +380,15 @@ inline void ApplySpeedAndDeltasForSlot(MatchState& s, int slot, bool controlled)
 
 inline void MapInputToTeam(TeamControl& tc, const PlayerInput& in) {
     if (tc.player_number == 0) {
-        // CPU until B9 — clear stick, leave fire alone for now.
+        // CPU until B9 — clear stick. Fire cleared in RefreshHumanFire.
         tc.current_allowed_direction = -1;
         tc.direction = -1;
-        tc.quick_fire = 0;
-        tc.normal_fire = 0;
-        tc.fire_pressed = 0;
-        tc.fire_this_frame = 0;
         return;
     }
+    // Stick only — fire is refreshed every tick in RefreshHumanFire.
     const int8_t dir = static_cast<int8_t>(in.dir);
     tc.direction = dir;
     tc.current_allowed_direction = dir;
-    tc.fire_this_frame =
-        static_cast<uint8_t>((in.fire && !tc.fire_pressed) ? 1 : 0);
-    tc.fire_pressed = static_cast<uint8_t>(in.fire ? 1 : 0);
-    if (in.fire)
-        ++tc.fire_counter;
-    else
-        tc.fire_counter = 0;
 }
 
 // --- public API ------------------------------------------------------------
@@ -473,6 +464,14 @@ inline void ApplyTeamControls(MatchState& s, const MatchInput& in) {
     // B5: bands + capture before dest/speed so on-ball cut applies same tick.
     UpdatePossessionForSide(s, side);
 
+    // B6: strike before dribble so a kick is not immediately re-aimed.
+    const bool struck = ApplyKickOrPass(s, side);
+    // Drop unused fire pulses on this side's turn (sticky across off-ticks).
+    if (!struck) {
+        tc.quick_fire = 0;
+        tc.normal_fire = 0;
+    }
+
     const int base = side * 11;
     const int controlled = tc.controlled_slot;
 
@@ -486,8 +485,10 @@ inline void ApplyTeamControls(MatchState& s, const MatchInput& in) {
         ApplySpeedAndDeltasForSlot(s, slot, is_ctrl);
     }
 
-    // Dribble after carrier speed is known (Control offset on top of it).
-    ApplyDribble(s, side);
+    // Dribble after carrier speed. Skip strike tick, and while Fire is held so
+    // a charged shot is not dribbled off the player's feet mid-hold.
+    if (!struck && !tc.fire_pressed && tc.fire_counter == 0)
+        ApplyDribble(s, side);
 
     // Cache ball position for the team.
     tc.ball_x = s.ball.pos.x.Whole();

@@ -39,6 +39,11 @@ add_executable(core_tests
     core/test_possession_capture.cpp
     core/test_dribble.cpp
     core/test_dribble_turn.cpp
+    core/test_fire_classify.cpp
+    core/test_kick_launch.cpp
+    core/test_shot_bonus.cpp
+    core/test_aftertouch.cpp
+    core/test_curled_shot.cpp
 )
 target_link_libraries(core_tests PRIVATE at_core at_tracekit doctest)
 target_compile_definitions(core_tests PRIVATE

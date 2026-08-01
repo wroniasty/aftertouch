@@ -1,4 +1,5 @@
 #pragma once
+#include "core/aftertouch.hpp"
 #include "core/match_clock.hpp"
 #include "core/match_state.hpp"
 #include "core/out_of_play.hpp"
@@ -237,6 +238,9 @@ inline void WireOutOfPlay(MatchState& s) {
 }
 
 inline void UpdateBall(MatchState& s) {
+    // B6: aftertouch nudges dest / may rewrite delta_z before integrate.
+    ApplyAftertouch(s);
+
     Entity& ball = s.ball;
 
     const Dest from{ball.pos.x.Whole(), ball.pos.y.Whole()};

@@ -18,9 +18,10 @@ lead-ahead camera. Full C1 remains Wave 4.
 
 ## 1. Scope
 
-**In:** Pitch fill, simple lines, entity dots, `PitchToScreen` mapper, HUD tick/score.
+**In:** Pitch fill, simple lines, entity dots, `PitchToScreen` mapper, HUD
+tick/score, ball height (shadow + lift), dest guide, spin/has-ball debug line.
 
-**Out:** Atlas, tiles, weather, camera modes, kit sprites, HUD chrome beyond one-liners.
+**Out:** Atlas, tiles, weather, camera modes, kit sprites, full HUD chrome.
 
 ---
 

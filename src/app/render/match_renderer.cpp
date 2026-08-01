@@ -5,6 +5,8 @@
 
 #include <SDL3/SDL.h>
 
+#include <algorithm>
+
 namespace at::render {
 
 namespace {
@@ -16,15 +18,16 @@ void FillDot(SDL_Renderer* r, int cx, int cy, int half, Uint8 R, Uint8 G, Uint8 
     SDL_RenderFillRect(r, &rect);
 }
 
+constexpr int kHeightPixelsPerUnit = 1;
+constexpr int kMaxHeightLift = 40;
+
 } // namespace
 
 void DrawMatch(SDL_Renderer* r, const MatchState& state, int match_w, int match_h) {
-    // Pitch background
     SDL_SetRenderDrawColor(r, 20, 90, 40, 255);
     SDL_FRect pitch{0, 0, static_cast<float>(match_w), static_cast<float>(match_h)};
     SDL_RenderFillRect(r, &pitch);
 
-    // Simple halfway + touchline guides in pitch space.
     SDL_SetRenderDrawColor(r, 40, 120, 55, 255);
     const auto tl = PitchToScreen(kViewMinX, kViewMinY, match_w, match_h);
     const auto br = PitchToScreen(kViewMaxX, kViewMaxY, match_w, match_h);
@@ -40,7 +43,6 @@ void DrawMatch(SDL_Renderer* r, const MatchState& state, int match_w, int match_
     SDL_RenderLine(r, static_cast<float>(tl.x), static_cast<float>(mid.y),
                    static_cast<float>(br.x), static_cast<float>(mid.y));
 
-    // Players
     for (int i = 0; i < kPitchPlayers; ++i) {
         const Entity& e = state.players[static_cast<size_t>(i)];
         const auto sp = PitchToScreen(e.pos.x.Whole(), e.pos.y.Whole(), match_w, match_h);
@@ -54,19 +56,52 @@ void DrawMatch(SDL_Renderer* r, const MatchState& state, int match_w, int match_
             FillDot(r, sp.x, sp.y, ctrl ? 2 : 1, 220, 60, 60);
     }
 
-    // Ball on top
     {
-        const auto sp = PitchToScreen(state.ball.pos.x.Whole(), state.ball.pos.y.Whole(),
-                                      match_w, match_h);
-        FillDot(r, sp.x, sp.y, 2, 245, 245, 80);
-    }
+        const int16_t bx = state.ball.pos.x.Whole();
+        const int16_t by = state.ball.pos.y.Whole();
+        const int z = std::max(0, static_cast<int>(state.ball.pos.z.Whole()));
+        const auto ground = PitchToScreen(bx, by, match_w, match_h);
+        const int lift = std::min(z * kHeightPixelsPerUnit, kMaxHeightLift);
+        const int ball_y = ground.y - lift;
+        const int half = (z >= 8) ? 3 : 2;
 
+        FillDot(r, ground.x, ground.y, 1, 15, 50, 25);
+        if (lift > 1) {
+            SDL_SetRenderDrawColor(r, 30, 70, 35, 255);
+            SDL_RenderLine(r, static_cast<float>(ground.x), static_cast<float>(ground.y),
+                           static_cast<float>(ground.x), static_cast<float>(ball_y));
+        }
+
+        const auto dest =
+            PitchToScreen(state.ball.dest_x, state.ball.dest_y, match_w, match_h);
+        SDL_SetRenderDrawColor(r, 180, 180, 60, 255);
+        SDL_RenderLine(r, static_cast<float>(ground.x), static_cast<float>(ground.y),
+                       static_cast<float>(dest.x), static_cast<float>(dest.y));
+        FillDot(r, dest.x, dest.y, 0, 200, 200, 80);
+
+        FillDot(r, ground.x, ball_y, half, 245, 245, 80);
+    }
+}
+
+void DrawMatchHud(SDL_Renderer* r, const MatchState& state) {
+    // Window pixels, native 8×8 debug glyphs — ~4× smaller than inside 320×200
+    // integer scale (was ~32px on a 4× window), still readable.
     SDL_SetRenderDrawColor(r, 235, 235, 235, 255);
-    char line[80];
+    char line[96];
     SDL_snprintf(line, sizeof line, "tick %u  %u-%u", state.tick, state.score[0],
                  state.score[1]);
     SDL_RenderDebugText(r, 8.0f, 8.0f, line);
-    SDL_RenderDebugText(r, 8.0f, 20.0f, "arrows/WASD move  Space fire  ESC menu");
+
+    const auto& tc = state.sides[0].control;
+    SDL_snprintf(line, sizeof line, "ball z=%d spd=%d  spin=%d%s%s  has=%d fire=%d",
+                 state.ball.pos.z.Whole(), state.ball.speed,
+                 static_cast<int>(tc.spin_timer),
+                 tc.left_spin ? " L" : "", tc.right_spin ? " R" : "",
+                 static_cast<int>(tc.player_has_ball),
+                 static_cast<int>(tc.fire_counter));
+    SDL_RenderDebugText(r, 8.0f, 20.0f, line);
+    SDL_RenderDebugText(r, 8.0f, 32.0f,
+                        "tap=pass  hold~0.25s=shot  aftertouch: steer after kick");
 }
 
 } // namespace at::render

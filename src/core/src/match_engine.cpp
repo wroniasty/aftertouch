@@ -1,8 +1,10 @@
 #include "core/match_engine.hpp"
 
+#include "core/aftertouch.hpp"
 #include "core/ball.hpp"
 #include "core/match_clock.hpp"
 #include "core/movement.hpp"
+#include "core/shooting.hpp"
 
 namespace at {
 
@@ -25,10 +27,16 @@ void MatchEngine::Step(const MatchInput& in) {
     // 1. Clock + period ends
     UpdateTime(state_);
 
+    // 1b. Human fire every tick (tap/hold threshold is wall-clock frames).
+    RefreshHumanFire(state_, in);
+
     // 2. Team controls (one side / tick) — writes dest/speed/delta
     ApplyTeamControls(state_, in);
 
-    // 3. UpdateBall
+    // 2b. Aftertouch stick every tick (window is only ~10 frames).
+    RefreshAftertouchInput(state_, in);
+
+    // 3. UpdateBall (aftertouch apply + physics)
     UpdateBall(state_);
 
     // 4. MovePlayers — integrate all 22

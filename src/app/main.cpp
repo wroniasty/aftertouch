@@ -49,7 +49,9 @@ void SeedPlayableMatch(at::MatchEngine& engine) {
             auto& attrs =
                 s.sides[static_cast<size_t>(side)].squad[static_cast<size_t>(i)].attrs;
             attrs.speed = static_cast<uint8_t>(4 + (i % 4));
-            attrs.ball_control = static_cast<uint8_t>(3 + (i % 4)); // mid Control for dribble feel
+            attrs.ball_control = static_cast<uint8_t>(3 + (i % 4));
+            attrs.shooting = static_cast<uint8_t>(3 + (i % 4));
+            attrs.finishing = static_cast<uint8_t>(3 + ((i + 1) % 4));
         }
     }
     at::PlacePlayersAtKickoff(s);
@@ -146,6 +148,8 @@ int main(int, char**) {
             at::render::DrawMatch(renderer, engine.State(), kMatchW, kMatchH);
             SDL_SetRenderLogicalPresentation(
                 renderer, 0, 0, SDL_LOGICAL_PRESENTATION_DISABLED);
+            // HUD in window pixels so debug text is not integer-scaled up.
+            at::render::DrawMatchHud(renderer, engine.State());
         }
 
         ImGui_ImplSDLRenderer3_NewFrame();
