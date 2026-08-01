@@ -13,6 +13,7 @@ TEST_CASE("B1 types have unique object representation") {
     CHECK(std::has_unique_object_representations_v<SquadPlayer>);
     CHECK(std::has_unique_object_representations_v<TacticsSnapshot>);
     CHECK(std::has_unique_object_representations_v<MatchGlobals>);
+    CHECK(std::has_unique_object_representations_v<MatchSurface>);
     CHECK(std::has_unique_object_representations_v<MatchSide>);
     CHECK(std::has_unique_object_representations_v<MatchState>);
     CHECK(std::is_trivially_copyable_v<MatchState>);

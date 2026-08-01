@@ -42,6 +42,7 @@ inline uint64_t HashState(const MatchState& s) {
     h = hash_detail::MixPod(h, s.sides);
     h = hash_detail::MixPod(h, s.globals);
     h = hash_detail::MixPod(h, s.clock);
+    h = hash_detail::MixPod(h, s.surface);
     h = hash_detail::MixPod(h, s.gameplay_rng);
     h = hash_detail::MixPod(h, s.resolve_rng);
     // presentation_rng intentionally omitted

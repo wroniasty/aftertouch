@@ -89,6 +89,9 @@ inline void PlaceBallAtCentre(MatchState& s) {
     s.ball.pos.y = Fix::FromInt(kCentreSpotY);
     s.ball.pos.z = Fix{};
     s.ball.delta = {};
+    s.ball.dest_x = kCentreSpotX;
+    s.ball.dest_y = kCentreSpotY;
+    s.ball.speed = 0;
     s.globals.foul_x = kCentreSpotX;
     s.globals.foul_y = kCentreSpotY;
 }
@@ -104,6 +107,8 @@ inline void BeginMatchIfNeeded(MatchState& s) {
     s.globals.team_starting =
         static_cast<uint8_t>((s.gameplay_rng.Draw() & 1u) + 1u);
     PlaceBallAtCentre(s);
+    // B3: Normal surface until weather/pitch selection exists.
+    s.surface = MatchSurface{}; // 0 / 64 / 96
     SetGameState(s, GameState::StartingGame);
     SetPl(s, GameStatePl::Stopped);
     s.clock.stoppage_event_timer = 2;

@@ -22,4 +22,12 @@ inline constexpr bool IsAmigaProfile() {
     return kPlatformProfile == PlatformProfile::Amiga;
 }
 
+// Ball physics constants — BALL.md §9 / B3. Amiga is the default oracle.
+inline constexpr int16_t kBallGroundConstant =
+    IsAmigaProfile() ? int16_t{16} : int16_t{13};
+inline constexpr int16_t kBallAirConstant =
+    IsAmigaProfile() ? int16_t{10} : int16_t{4};
+inline constexpr int32_t kGravityConstant =
+    IsAmigaProfile() ? 4608 : 3291;
+
 } // namespace at

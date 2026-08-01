@@ -119,7 +119,10 @@ inline FieldClass ClassifyRecordOffset(size_t off) {
     const size_t clock_end = globals_end + trace::kClockWireSize;
     if (off < clock_end) return FieldClass::Clock;
 
-    if (off < clock_end + 12) return FieldClass::Rng;
+    const size_t surface_end = clock_end + trace::kSurfaceWireSize;
+    if (off < surface_end) return FieldClass::Globals; // surface coeffs
+
+    if (off < surface_end + 12) return FieldClass::Rng;
     return FieldClass::Unknown;
 }
 

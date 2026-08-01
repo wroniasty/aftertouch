@@ -63,6 +63,9 @@ MatchState MakeBusyState() {
     s.clock.match_started = 1;
     s.sides[0].stats.possession = 1234;
     s.sides[1].stats.corners_won = 5;
+    s.surface.pitch_ball_speed_factor = -2;
+    s.surface.ball_speed_bounce_factor = 24;
+    s.surface.ball_bounce_factor = 88;
 
     s.gameplay_rng.Seed(1);
     s.presentation_rng.Seed(2);
@@ -110,7 +113,7 @@ TEST_CASE("Trace record is fixed width, so tick maps to offset by arithmetic") {
           trace::kRecordPrefixSize +
               trace::kArenaEntityCount * trace::kEntityWireSize +
               2 * trace::kSideWireSize + trace::kGlobalsWireSize +
-              trace::kClockWireSize + 12 + 8);
+              trace::kClockWireSize + trace::kSurfaceWireSize + 12 + 8);
 }
 
 TEST_CASE("Trace record refuses a buffer that is too small") {

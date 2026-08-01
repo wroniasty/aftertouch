@@ -1,8 +1,8 @@
 # PLAN — Current state
 
-Snapshot of foundation (A) and match-engine Wave 2 start against [PLAN.md](PLAN.md).  
+Snapshot of foundation (A) and match-engine Wave 2 against [PLAN.md](PLAN.md).  
 Statuses: **done** · **partial** · **not started**.  
-Updated after B2 closed locally; regenerate this file when a part's acceptance moves.
+Updated after B3 closed locally; regenerate this file when a part's acceptance moves.
 
 ---
 
@@ -12,10 +12,10 @@ Updated after B2 closed locally; regenerate this file when a part's acceptance m
 |---|---|---|
 | **0 — Skeleton** | A1; PLAN.md §8 on Windows and macOS | **Passed** |
 | **1 — Instrument** | A2, A3, A4, A6 green; reference + engine traces in viewer | **Open** — A2/A3/A6 green; A4 first-launch prompt still open |
-| **2 — The ball moves** | B1, B2, B3, B4, B10 (+ thin C1 slice) | **In progress** — B1, B2 done |
+| **2 — The ball moves** | B1, B2, B3, B4, B10 (+ thin C1 slice) | **In progress** — B1–B3 done |
 | **3+** | rest of B / C / D / E | Not started |
 
-A5 was scheduled for Wave 3 but is implemented early; B9 can consume tactics data when it arrives. Wave 2 continues with B3 while the A4 residual remains D1-shaped.
+A5 was scheduled for Wave 3 but is implemented early; B9 can consume tactics data when it arrives. Wave 2 continues with B4 while the A4 residual remains D1-shaped.
 
 ---
 
@@ -38,7 +38,26 @@ A5 was scheduled for Wave 3 but is implemented early; B9 can consume tactics dat
 |---|---|---|---|
 | **B1** | State & layout | **done** | Full match state serialises to ATTR and back losslessly |
 | **B2** | Frame & state machine | **done** | 90′ headless ends FullTime at 0–0 |
-| **B3+** | Ball / movement / … | **not started** | — |
+| **B3** | Ball physics | **done** | Scripted trajectory hash + OOP wire green |
+| **B4+** | Movement / … | **not started** | — |
+
+---
+
+## B3 — Ball physics — **done**
+
+Subfile: [B3-ball-physics.md](B3-ball-physics.md)
+
+| Work item | State |
+|---|---|
+| Amiga ground/air/gravity constants behind profile | landed |
+| `MatchSurface` (Normal defaults); ATTR format version **4** | landed |
+| `UpdateBall`: deltas → friction → integrate → bounce → barrier → frame → predictor | landed |
+| A2 controls ball walk removed; `LaunchBall` helper | landed |
+| `ClassifyBallOutOfPlay` wired on leave-play | landed |
+| Golden friction / bounce / barrier / predictor / trajectory / OOP-wire tests | landed |
+| Golden / corpus / determinism re-pinned | landed |
+
+Done-when met: `test_ball_trajectory` + `test_ball_oop_wire` green in `core_tests`. Real SWOS ATTR remains an A3 follow-up. Kick launch is B6.
 
 ---
 
@@ -52,12 +71,12 @@ Subfile: [B2-frame-state-machine.md](B2-frame-state-machine.md)
 | Amiga-profile clock (refill 49, `game_length` 0 → 8820 ticks / 90′) | landed |
 | Kick-off → InPlay → HalfTime → InPlay → FullTime | landed |
 | Injury-time gate (`prolongLastMinute`) | landed |
-| Step spine: time → controls stub → stats; ball walk only while InProgress | landed |
-| Pure `ClassifyBallOutOfPlay` (not wired into Step) | landed |
-| ATTR format version **3** (clock + stats) | landed |
+| Step spine: time → controls stub → ball → stats | landed (B3 filled ball) |
+| Pure `ClassifyBallOutOfPlay` (wired by B3) | landed |
+| ATTR format version **3** (superseded by v4 in B3) | landed |
 | `test_full_match` 0–0 acceptance | landed |
 
-Done-when met: headless `game_length=0` run reaches `MatchPhase::FullTime` with score `{0,0}` in `core_tests`. Ball/player/referee bodies remain stubs for B3/B4/B8.
+Done-when met: headless `game_length=0` run reaches `MatchPhase::FullTime` with score `{0,0}` in `core_tests`.
 
 ---
 
@@ -194,7 +213,7 @@ Runtime serving is interchangeable; the shell prompt and a complete generated pa
 
 ## What Wave 2 needs next
 
-1. **B3** — ball physics (friction, bounce, predictors) driven by the B2 spine  
+1. **B4** — player movement under scripted input  
 2. Thin C1 debug view when B3/B4 want to be watched  
 
 ---
@@ -203,8 +222,8 @@ Runtime serving is interchangeable; the shell prompt and a complete generated pa
 
 | Area | Location |
 |---|---|
-| Core / state | `src/core/include/core/{match_state,match_clock,out_of_play,hash,trace,match_*}.hpp` |
-| B1 / B2 plans | `doc/implementation/B1-state-layout.md`, `B2-frame-state-machine.md` |
+| Core / state | `src/core/include/core/{match_state,match_clock,ball,out_of_play,hash,trace,match_*}.hpp` |
+| B1–B3 plans | `doc/implementation/B1-state-layout.md`, `B2-frame-state-machine.md`, `B3-ball-physics.md` |
 | Assets | `src/assets/`, `src/tools/assetc/`, `src/app/render/{asset_source,placeholder,imported}_*` |
 | Placeholder art | `assets/placeholder/` (`gen-placeholder`) |
 | Game data | `src/data/include/data/{game_data,fictional}.hpp` |

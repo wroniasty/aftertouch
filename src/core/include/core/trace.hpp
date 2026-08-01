@@ -10,15 +10,14 @@
 // The trace record: one fixed-width, little-endian record per tick, plus a header.
 // See doc/implementation/A3-trace-harness.md and B1-state-layout.md.
 //
-// ATTR v2 serialises the full MatchState field-by-field (plus MatchInput). B1's
-// done-when is a lossless round-trip of that set.
+// ATTR serialises the full MatchState field-by-field (plus MatchInput).
 
 namespace at::trace {
 
 inline constexpr uint32_t kMagic = 0x52545441u; // "ATTR"
 
-// Version 3: B2 clock + TeamStats. v1/v2 readers are retired.
-inline constexpr uint16_t kFormatVersion = 3;
+// Version 4: B3 MatchSurface. v1–v3 readers are retired.
+inline constexpr uint16_t kFormatVersion = 4;
 
 enum class Profile : uint8_t { kAmiga = 0, kPc = 1 };
 
@@ -87,13 +86,15 @@ inline constexpr size_t kClockWireSize =
     5 * 2 + // minute, seconds, accumulator, end_game, stoppage
     2;      // trailing pads
 
+inline constexpr size_t kSurfaceWireSize = 3 * 2 + 2; // three int16 + pad
+
 inline constexpr size_t kSideWireSize =
     kTeamSheetWireSize + kTeamControlWireSize +
     kMatchSquadSize * kSquadPlayerWireSize + kTacticsWireSize +
     kTeamStatsWireSize;
 
 // tick(4)+phase(1)+input(4)+score(2)+last_roll(1) + arena + sides×2 + globals +
-// clock + 3×RngStream(4) + hash(8)
+// clock + surface + 3×RngStream(4) + hash(8)
 inline constexpr size_t kRecordPrefixSize = 4 + 1 + 4 + 2 + 1;
 inline constexpr size_t kRecordSize =
     kRecordPrefixSize +
@@ -101,6 +102,7 @@ inline constexpr size_t kRecordSize =
     2 * kSideWireSize +
     kGlobalsWireSize +
     kClockWireSize +
+    kSurfaceWireSize +
     3 * 4 +
     8;
 
@@ -538,6 +540,20 @@ constexpr void GetClock(std::span<const uint8_t> b, size_t& at, MatchClock& c) {
     c._pad4 = GetU8(b, at);
 }
 
+constexpr void PutSurface(std::span<uint8_t> b, size_t& at, const MatchSurface& s) {
+    PutI16(b, at, s.pitch_ball_speed_factor);
+    PutI16(b, at, s.ball_speed_bounce_factor);
+    PutI16(b, at, s.ball_bounce_factor);
+    PutI16(b, at, s._pad);
+}
+
+constexpr void GetSurface(std::span<const uint8_t> b, size_t& at, MatchSurface& s) {
+    s.pitch_ball_speed_factor  = GetI16(b, at);
+    s.ball_speed_bounce_factor = GetI16(b, at);
+    s.ball_bounce_factor       = GetI16(b, at);
+    s._pad                     = GetI16(b, at);
+}
+
 constexpr void PutGlobals(std::span<uint8_t> b, size_t& at, const MatchGlobals& g) {
     PutU8(b, at, g.game_state);
     PutU8(b, at, g.game_state_pl);
@@ -677,6 +693,7 @@ constexpr size_t SerializeRecord(const MatchState& s, const MatchInput& in,
     for (const MatchSide& side : s.sides) detail::PutSide(out, at, side);
     detail::PutGlobals(out, at, s.globals);
     detail::PutClock(out, at, s.clock);
+    detail::PutSurface(out, at, s.surface);
     detail::PutRng(out, at, s.gameplay_rng);
     detail::PutRng(out, at, s.presentation_rng);
     detail::PutRng(out, at, s.resolve_rng);
@@ -708,6 +725,7 @@ constexpr bool DeserializeRecord(std::span<const uint8_t> in, MatchState& s,
     for (MatchSide& side : s.sides) detail::GetSide(in, at, side);
     detail::GetGlobals(in, at, s.globals);
     detail::GetClock(in, at, s.clock);
+    detail::GetSurface(in, at, s.surface);
     detail::GetRng(in, at, s.gameplay_rng);
     detail::GetRng(in, at, s.presentation_rng);
     detail::GetRng(in, at, s.resolve_rng);

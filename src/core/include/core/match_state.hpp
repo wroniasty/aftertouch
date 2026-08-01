@@ -359,6 +359,20 @@ struct MatchClock {
 static_assert(std::has_unique_object_representations_v<MatchClock>);
 
 // ---------------------------------------------------------------------------
+// MatchSurface — BALL.md §9 pitch coeffs (our layout; Normal defaults)
+// ---------------------------------------------------------------------------
+
+struct MatchSurface {
+    int16_t pitch_ball_speed_factor  = 0;   // Normal
+    int16_t ball_speed_bounce_factor = 64;  // horizontal loss on bounce
+    int16_t ball_bounce_factor       = 96;  // vertical restitution loss
+    int16_t _pad                     = 0;
+};
+
+static_assert(sizeof(MatchSurface) == 8);
+static_assert(std::has_unique_object_representations_v<MatchSurface>);
+
+// ---------------------------------------------------------------------------
 // MatchGlobals — named globals only (STATE.md §7).
 // ---------------------------------------------------------------------------
 
@@ -434,6 +448,7 @@ struct MatchState {
     std::array<MatchSide, 2> sides{};
     MatchGlobals             globals{};
     MatchClock               clock{};
+    MatchSurface             surface{};
 
     RngStream gameplay_rng{};
     RngStream presentation_rng{};
