@@ -72,3 +72,15 @@ Testing/
 # Copyrighted artwork extracted from the original game -- NEVER commit.
 # See PLAN.md section 10 and LEGACY.md section 15.
 reference/
+
+# Imported artwork. NEVER commit: assetc writes the rightsholder's art here,
+# converted into our format. See doc/PLAN.md section 10.
+#
+# Ignore the CONTENTS, not the directories. Excluding "assets/" outright also
+# excludes the directory itself, and git cannot re-include a file whose parent
+# is excluded -- the README negation below would silently do nothing.
+assets/*
+!assets/generated/
+assets/generated/*
+!assets/generated/README.md
+*.swosdata

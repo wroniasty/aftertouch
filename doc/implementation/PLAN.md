@@ -273,6 +273,13 @@ below state what is new; they all inherit that.
   the interface while that is fresh costs almost nothing; retrofitting it once D3 has
   been calling a concrete simulator for a month costs a lot. It also means D3 starts
   against `ScriptedResultSimulator` and never blocks on engine work.
+- **The engine targets the reference's Amiga profile at 50 Hz.** Decided in
+  [A2-determinism-primitives.md](A2-determinism-primitives.md) §2.4a: at 50 Hz our tick
+  *N* is the reference's tick *N*, so A3's diff is an equality test rather than a
+  resampling argument, and §6 rule 3 is satisfied natively. It is a gameplay decision,
+  not a units conversion — the Amiga build is ~11 % quicker with a markedly heavier
+  ball — so A3, B2 and B3 all inherit it, and the PC profile stays implemented behind
+  the same switch the reference uses.
 - **B6 owns the schedule risk.** It is the mechanic the game is named after and the
   one most likely to be *almost* right. Budget for it to overrun and do not let a
   wave gate hide that.

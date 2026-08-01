@@ -30,15 +30,20 @@ include(cmake/imgui.cmake)
 add_library(doctest INTERFACE)
 target_include_directories(doctest INTERFACE third_party/doctest)
 
+# --- python -----------------------------------------------------------------
+# Located before the subdirectories so tests/ can see Python3_FOUND.
+find_package(Python3 COMPONENTS Interpreter QUIET)
+
 # --- project ----------------------------------------------------------------
 add_subdirectory(src/core)
+add_subdirectory(src/assets)
 add_subdirectory(src/app)
+add_subdirectory(src/tools)
 
 enable_testing()
 add_subdirectory(tests)
 
 # --- wall check -------------------------------------------------------------
-find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_FOUND)
     add_custom_target(check-walls
         COMMAND ${Python3_EXECUTABLE}
