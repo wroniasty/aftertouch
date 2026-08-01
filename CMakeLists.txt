@@ -37,6 +37,7 @@ find_package(Python3 COMPONENTS Interpreter QUIET)
 # --- project ----------------------------------------------------------------
 add_subdirectory(src/core)
 add_subdirectory(src/assets)
+add_subdirectory(src/data)
 add_subdirectory(src/app)
 add_subdirectory(src/tools)
 

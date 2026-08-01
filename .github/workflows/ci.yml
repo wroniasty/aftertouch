@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  windows:
+    name: Windows
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Ninja
+        uses: seanmiddleditch/gha-setup-ninja@master
+
+      - name: Configure
+        run: cmake --preset win-debug
+
+      - name: Build
+        run: cmake --build --preset win-debug
+
+      - name: Test
+        run: ctest --test-dir build/win-debug --output-on-failure --timeout 120
+
+  macos:
+    name: macOS
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Dependencies
+        run: brew install ninja
+
+      - name: Configure
+        run: cmake --preset mac-debug
+
+      - name: Build
+        run: cmake --build --preset mac-debug
+
+      - name: Test
+        run: ctest --test-dir build/mac-debug --output-on-failure --timeout 120
