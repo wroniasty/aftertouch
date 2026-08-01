@@ -1,8 +1,8 @@
 # PLAN — Current state
 
-Snapshot of foundation (A) and match-engine Wave 2 against [PLAN.md](PLAN.md).  
+Snapshot of foundation (A) and match-engine Waves 2–3 against [PLAN.md](PLAN.md).  
 Statuses: **done** · **partial** · **not started**.  
-Updated after B10 + C1a closed locally; regenerate this file when a part's acceptance moves.
+Updated after B5 closed locally; regenerate this file when a part's acceptance moves.
 
 ---
 
@@ -13,7 +13,7 @@ Updated after B10 + C1a closed locally; regenerate this file when a part's accep
 | **0 — Skeleton** | A1; PLAN.md §8 on Windows and macOS | **Passed** |
 | **1 — Instrument** | A2, A3, A4, A6 green; reference + engine traces in viewer | **Open** — A2/A3/A6 green; A4 first-launch prompt still open |
 | **2 — The ball moves** | B1, B2, B3, B4, B10 (+ thin C1 slice) | **Gate met locally** — B1–B4, B10, C1a done; kick still B6 |
-| **3+** | rest of B / C / D / E | Not started |
+| **3 — Possession / kicks** | B5, B6, … | **In progress** — B5 done; kick launch is B6 |
 
 A5 was scheduled for Wave 3 but is implemented early. Wave 2 playable slice: keyboard/gamepad + dots. Full C1 remains Wave 4.
 
@@ -40,8 +40,9 @@ A5 was scheduled for Wave 3 but is implemented early. Wave 2 playable slice: key
 | **B2** | Frame & state machine | **done** | 90′ headless ends FullTime at 0–0 |
 | **B3** | Ball physics | **done** | Scripted trajectory hash + OOP wire green |
 | **B4** | Player movement | **done** | 22 players, scripted 200-tick HashState pin |
+| **B5** | Possession | **done** | Bands, capture/dribble, dribble-turn HashState pin |
 | **B10** | Match input | **done** | Keyboard/gamepad → MatchInput (seven-field path) |
-| **B5+** | Possession / … | **not started** | — |
+| **B6+** | Kicks / … | **not started** | — |
 
 ### Part C (Wave 2 slice)
 
@@ -49,6 +50,24 @@ A5 was scheduled for Wave 3 but is implemented early. Wave 2 playable slice: key
 |---|---|---|---|
 | **C1a** | Debug match view | **done** | Pitch + dots in 320×200; walkable with B10 |
 | **C1** | Render core (full) | **not started** | Atlas / tiles / weather — Wave 4 |
+
+---
+
+## B5 — Possession — **done**
+
+Subfile: [B5-possession.md](B5-possession.md)
+
+| Work item | State |
+|---|---|
+| Planar + z proximity bands (`possession.hpp`) | landed |
+| Capture / release + `pass_kick_timer` lockout tick | landed |
+| Dribble aim-ahead + Control speed trim | landed |
+| Wired in `ApplyTeamControls` before dest/speed | landed |
+| `test_proximity_bands` / `test_possession_capture` / `test_dribble` | landed |
+| `test_dribble_turn` HashState acceptance | landed |
+| Golden / corpus / determinism re-pinned | landed |
+
+Done-when met: scripted dribble-and-turn `HashState` stable under Amiga profile. Kick launch is B6; real SWOS ATTR remains an A3 follow-up.
 
 ---
 
@@ -273,7 +292,7 @@ Runtime serving is interchangeable; the shell prompt and a complete generated pa
 
 ## What Wave 2 / 3 needs next
 
-1. **B5+** — possession / kicks (Wave 3) so the ball can be struck, not only watched  
+1. **B6** — kick / pass launch + aftertouch so Fire strikes the ball  
 2. Full **C1** (Wave 4) when presentation work starts — do not grow C1a  
 
 ---
@@ -282,8 +301,8 @@ Runtime serving is interchangeable; the shell prompt and a complete generated pa
 
 | Area | Location |
 |---|---|
-| Core / state | `src/core/include/core/{match_state,match_clock,ball,movement,game_events,out_of_play,hash,trace,match_*}.hpp` |
-| B1–B4 / B10 / C1a plans | `doc/implementation/B1-…`, `B4-player-movement.md`, `B10-match-input.md`, `C1a-debug-match-view.md` |
+| Core / state | `src/core/include/core/{match_state,match_clock,ball,movement,possession,game_events,out_of_play,hash,trace,match_*}.hpp` |
+| B1–B5 / B10 / C1a plans | `doc/implementation/B1-…`, `B4-player-movement.md`, `B5-possession.md`, `B10-match-input.md`, `C1a-debug-match-view.md` |
 | App input / debug draw | `src/app/input/match_input_source.*`, `src/app/render/{match_renderer,pitch_view}.*` |
 | Assets | `src/assets/`, `src/tools/assetc/`, `src/app/render/{asset_source,placeholder,imported}_*` |
 | Placeholder art | `assets/placeholder/` (`gen-placeholder`) |

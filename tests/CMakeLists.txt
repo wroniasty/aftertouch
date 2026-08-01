@@ -35,6 +35,10 @@ add_executable(core_tests
     core/test_offball_dest.cpp
     core/test_move_players.cpp
     core/test_game_events.cpp
+    core/test_proximity_bands.cpp
+    core/test_possession_capture.cpp
+    core/test_dribble.cpp
+    core/test_dribble_turn.cpp
 )
 target_link_libraries(core_tests PRIVATE at_core at_tracekit doctest)
 target_compile_definitions(core_tests PRIVATE

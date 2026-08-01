@@ -3,6 +3,7 @@
 #include "core/match_clock.hpp"
 #include "core/match_input.hpp"
 #include "core/match_state.hpp"
+#include "core/possession.hpp"
 #include "core/trig.hpp"
 
 #include <algorithm>
@@ -410,6 +411,8 @@ inline void PlacePlayersAtKickoff(MatchState& s) {
         if (s.sides[static_cast<size_t>(side)].control.controlled_slot < 0)
             s.sides[static_cast<size_t>(side)].control.controlled_slot =
                 static_cast<int8_t>(side * 11);
+        // Ball is capturable until a kick lockout (B6) clears this.
+        s.sides[static_cast<size_t>(side)].control.ball_can_be_controlled = 1;
 
         for (int i = 0; i < 11; ++i) {
             const int slot = side * 11 + i;
@@ -467,6 +470,9 @@ inline void ApplyTeamControls(MatchState& s, const MatchInput& in) {
 
     UpdateControlledPlayer(s, side);
 
+    // B5: bands + capture before dest/speed so on-ball cut applies same tick.
+    UpdatePossessionForSide(s, side);
+
     const int base = side * 11;
     const int controlled = tc.controlled_slot;
 
@@ -479,6 +485,9 @@ inline void ApplyTeamControls(MatchState& s, const MatchInput& in) {
             ApplyOffBallDestination(s, side, slot);
         ApplySpeedAndDeltasForSlot(s, slot, is_ctrl);
     }
+
+    // Dribble after carrier speed is known (Control offset on top of it).
+    ApplyDribble(s, side);
 
     // Cache ball position for the team.
     tc.ball_x = s.ball.pos.x.Whole();

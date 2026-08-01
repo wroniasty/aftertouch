@@ -46,8 +46,10 @@ void SeedPlayableMatch(at::MatchEngine& engine) {
             }
         }
         for (int i = 0; i < 11; ++i) {
-            s.sides[static_cast<size_t>(side)].squad[static_cast<size_t>(i)].attrs.speed =
-                static_cast<uint8_t>(4 + (i % 4));
+            auto& attrs =
+                s.sides[static_cast<size_t>(side)].squad[static_cast<size_t>(i)].attrs;
+            attrs.speed = static_cast<uint8_t>(4 + (i % 4));
+            attrs.ball_control = static_cast<uint8_t>(3 + (i % 4)); // mid Control for dribble feel
         }
     }
     at::PlacePlayersAtKickoff(s);
