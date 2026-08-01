@@ -15,12 +15,13 @@ public:
 
     void Reset(uint32_t seed);
     void Step(const MatchInput& in);
+    // Replace live state (e.g. after ApplyKickoff). Caller owns seeding policy.
+    void LoadState(const MatchState& s) { state_ = s; }
 
     const MatchState& State() const { return state_; }
 
 private:
     MatchState state_{};
-    uint32_t   rng_ = 1;
 };
 
 } // namespace at

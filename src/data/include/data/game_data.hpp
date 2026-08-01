@@ -523,8 +523,14 @@ inline const TeamRecord* FindTeam(const League& league, uint16_t id) {
     return nullptr;
 }
 
+inline const TacticRecord* FindTactic(const League& league, uint8_t id) {
+    if (static_cast<size_t>(id) >= league.tactics.size()) return nullptr;
+    return &league.tactics[id];
+}
+
 // Projects two squads into MatchState. Players 0–10 = home, 11–21 = away.
-// Does not place anyone on the pitch — B4 owns starting positions.
+// Fills all 16 squad slots + tactics snapshot + pitch identity. Does not place
+// anyone on the pitch — B4 owns starting positions. (B1-state-layout.md)
 inline bool ApplyKickoff(const League& league, uint16_t home_id, uint16_t away_id,
                          MatchState& state) {
     if (!LeagueOk(league)) return false;
@@ -534,22 +540,48 @@ inline bool ApplyKickoff(const League& league, uint16_t home_id, uint16_t away_i
 
     state = MatchState{};
     state.phase = MatchPhase::KickOff;
+    state.referee.team_number = 3;
+    state.booked_indicator.team_number = 3;
 
     const TeamRecord* sides[2] = {home, away};
     for (int side = 0; side < 2; ++side) {
         const TeamRecord& team = *sides[side];
-        TeamSheet& sheet = state.teams[static_cast<size_t>(side)];
+        MatchSide& ms = state.sides[static_cast<size_t>(side)];
+        TeamSheet& sheet = ms.sheet;
         std::memcpy(sheet.name.data(), team.name.data(), kNameLen);
         sheet.tactics_id = team.tactics_id;
         sheet.primary    = detail::ToKitSpec(team.primary);
         sheet.secondary  = detail::ToKitSpec(team.secondary);
 
+        ms.control.team_number = static_cast<uint8_t>(side + 1);
+        ms.control.controlled_slot =
+            static_cast<int8_t>(side * 11); // default to each side's first player
+
+        if (const TacticRecord* tac = FindTactic(league, team.tactics_id)) {
+            ms.tactics.out_of_play = tac->out_of_play;
+            ms.tactics.cells       = tac->cells;
+        }
+
+        for (size_t i = 0; i < kSquadSize; ++i) {
+            const PlayerRecord& p = team.players[i];
+            SquadPlayer& sp = ms.squad[i];
+            sp.index        = static_cast<uint8_t>(i);
+            sp.shirt_number = p.shirt;
+            sp.position     = p.position;
+            sp.face         = p.face;
+            sp.attrs        = p.attrs;
+            std::memcpy(sp.full_name.data(), p.name.data(), kNameLen);
+            // short_name: first 15 chars of the authored name
+            for (size_t c = 0; c < 15 && p.name[c] != '\0'; ++c)
+                sp.short_name[c] = p.name[c];
+        }
+
         for (size_t i = 0; i < 11; ++i) {
             const size_t slot = static_cast<size_t>(side) * 11 + i;
-            const PlayerRecord& p = team.players[i];
-            state.player_attrs[slot]  = p.attrs;
-            state.shirt_numbers[slot] = p.shirt;
-            state.positions[slot]     = p.position;
+            Entity& e = state.players[slot];
+            e.team_number    = static_cast<int16_t>(side + 1);
+            e.player_ordinal = static_cast<int16_t>(i + 1);
+            e.player_direction = 0;
         }
     }
     return true;

@@ -4,9 +4,11 @@
 #include <backends/imgui_impl_sdlrenderer3.h>
 
 #include "core/match_engine.hpp"
+#include "render/asset_source.hpp"
 #include "ui_imgui/fonts.hpp"
 
 #include <cstdint>
+#include <memory>
 
 namespace {
 
@@ -49,6 +51,20 @@ int main(int, char**) {
 
     at::MatchEngine engine;
     AppPhase        phase = AppPhase::MainMenu;
+
+    // A4: prefer imported packs; clean clones run on placeholder art.
+    std::unique_ptr<at::IAssetSource> assets = at::OpenAssetSource(
+        AT_ASSET_DIR "/generated", AT_ASSET_DIR "/placeholder");
+    if (!assets) {
+        SDL_Log("OpenAssetSource failed — missing assets/placeholder?");
+        return 1;
+    }
+    if (assets->IsPlaceholder()) {
+        SDL_Log("assets: placeholder (import with assetc into assets/generated)");
+    } else {
+        SDL_Log("assets: imported");
+    }
+    (void)assets; // C1 draws through this; match_renderer still a stub.
 
     uint64_t last_ns     = SDL_GetTicksNS();
     uint64_t accumulator = 0;

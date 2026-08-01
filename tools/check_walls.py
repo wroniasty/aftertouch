@@ -98,6 +98,10 @@ for f in sources("src"):
         continue
     if rel.startswith("src/app/main.cpp"):
         continue   # TEMPORARY: remove once the UI backend interface lands
+    # A3: trace_viewer is a tools/ GUI that overlays ATTR traces; same ImGui stack
+    # as the shell, outside Wall 1 (src/core) by design.
+    if rel.startswith("src/tools/trace_viewer/"):
+        continue
     text = f.read_text(encoding="utf-8", errors="ignore")
     for inc in INCLUDE.findall(text):
         if "imgui" in inc.lower():

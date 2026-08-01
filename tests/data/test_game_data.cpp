@@ -170,35 +170,48 @@ TEST_CASE("ApplyKickoff loads a fictional league into MatchState") {
     REQUIRE(ApplyKickoff(league, 1, 3, state));
 
     CHECK(state.phase == MatchPhase::KickOff);
-    CHECK(std::strcmp(state.teams[0].name.data(), "Northbridge FC") == 0);
-    CHECK(std::strcmp(state.teams[1].name.data(), "Eastmere United") == 0);
-    CHECK(state.teams[0].tactics_id == 0);
-    CHECK(state.teams[1].tactics_id == 1);
+    CHECK(std::strcmp(state.sides[0].sheet.name.data(), "Northbridge FC") == 0);
+    CHECK(std::strcmp(state.sides[1].sheet.name.data(), "Eastmere United") == 0);
+    CHECK(state.sides[0].sheet.tactics_id == 0);
+    CHECK(state.sides[1].sheet.tactics_id == 1);
 
-    // First eleven of each side.
-    CHECK(state.shirt_numbers[0] == 1);    // home keeper
-    CHECK(state.positions[0] == static_cast<uint8_t>(Position::GK));
-    CHECK(state.shirt_numbers[11] == 1);   // away keeper
-    CHECK(state.positions[11] == static_cast<uint8_t>(Position::GK));
+    // First eleven of each side (squad + pitch identity).
+    CHECK(state.sides[0].squad[0].shirt_number == 1);
+    CHECK(state.sides[0].squad[0].position == static_cast<uint8_t>(Position::GK));
+    CHECK(state.sides[1].squad[0].shirt_number == 1);
+    CHECK(state.sides[1].squad[0].position == static_cast<uint8_t>(Position::GK));
+    CHECK(state.players[0].team_number == 1);
+    CHECK(state.players[0].player_ordinal == 1);
+    CHECK(state.players[11].team_number == 2);
+    CHECK(state.referee.team_number == 3);
+
+    // All 16 squad slots filled; tactics snapshot present.
+    CHECK(state.sides[0].squad[11].shirt_number != 0);
+    CHECK(state.sides[0].squad[15].index == 15);
+    CHECK(state.sides[0].tactics.cells ==
+          league.tactics[state.sides[0].sheet.tactics_id].cells);
 
     // Strength-4 Northbridge vs strength-5 Eastmere: away striker finishing high.
-    CHECK(state.player_attrs[9].finishing <= 15);
-    CHECK(state.player_attrs[20].finishing <= 15);
-    CHECK(state.player_attrs[20].finishing >= state.player_attrs[9].finishing);
+    // Pitch slot 9 = home #10 (index 9); slot 20 = away #10 (side1 squad index 9).
+    CHECK(state.sides[0].squad[9].attrs.finishing <= 15);
+    CHECK(state.sides[1].squad[9].attrs.finishing <= 15);
+    CHECK(state.sides[1].squad[9].attrs.finishing >=
+          state.sides[0].squad[9].attrs.finishing);
 
-    for (const auto& a : state.player_attrs) {
-        CHECK(a.passing <= 15);
-        CHECK(a.shooting <= 15);
-        CHECK(a.heading <= 15);
-        CHECK(a.tackling <= 15);
-        CHECK(a.ball_control <= 15);
-        CHECK(a.speed <= 15);
-        CHECK(a.finishing <= 15);
+    for (const auto& side : state.sides) {
+        for (const auto& sp : side.squad) {
+            CHECK(sp.attrs.passing <= 15);
+            CHECK(sp.attrs.shooting <= 15);
+            CHECK(sp.attrs.heading <= 15);
+            CHECK(sp.attrs.tackling <= 15);
+            CHECK(sp.attrs.ball_control <= 15);
+            CHECK(sp.attrs.speed <= 15);
+            CHECK(sp.attrs.finishing <= 15);
+        }
     }
 
-    // Kits projected.
-    CHECK(state.teams[0].primary.shirt == 1);
-    CHECK(state.teams[1].primary.shirt == 6);
+    CHECK(state.sides[0].sheet.primary.shirt == 1);
+    CHECK(state.sides[1].sheet.primary.shirt == 6);
 }
 
 TEST_CASE("ApplyKickoff rejects unknown or identical teams") {

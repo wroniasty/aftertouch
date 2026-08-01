@@ -1,3 +1,5 @@
+add_subdirectory(render)
+
 add_executable(aftertouch
     main.cpp
     platform/window.cpp
@@ -8,7 +10,7 @@ add_executable(aftertouch
 )
 
 target_include_directories(aftertouch PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(aftertouch PRIVATE at_core imgui SDL3::SDL3)
+target_link_libraries(aftertouch PRIVATE at_core at_asset_source imgui SDL3::SDL3)
 
 # Asset path for development builds. Replace with SDL_GetBasePath()
 # and a real install layout when you package anything.

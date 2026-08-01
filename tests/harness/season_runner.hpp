@@ -20,9 +20,9 @@ struct SeasonReport {
     std::vector<MatchResult> matches;
 };
 
-// Round-robin every ordered pair: project squads (A5), then step the engine
-// headless for a fixed tick count. Scores stay 0–0 until B2 owns the clock; the
-// runner is the E/B11 hook (A6).
+// Round-robin every ordered pair: Reset (seed RNGs), ApplyKickoff into a copy of
+// that state (preserving streams), LoadState, then step headless. Scores stay
+// 0–0 until B2 owns the clock; the runner is the E/B11 hook (A6).
 inline SeasonReport RunRoundRobin(const data::League& league, uint32_t ticks_per_match,
                                   uint32_t seed_base = 1) {
     SeasonReport report;
@@ -34,15 +34,23 @@ inline SeasonReport RunRoundRobin(const data::League& league, uint32_t ticks_per
             mr.home_id = league.teams[i].id;
             mr.away_id = league.teams[j].id;
 
-            MatchState sheet;
+            MatchEngine sim;
+            const uint32_t seed =
+                seed_base + static_cast<uint32_t>(report.matches.size());
+            sim.Reset(seed);
+
+            MatchState sheet = sim.State();
             mr.squad_ok = data::ApplyKickoff(league, mr.home_id, mr.away_id, sheet);
             if (!mr.squad_ok) {
                 report.matches.push_back(mr);
                 continue;
             }
+            // ApplyKickoff wipes RNGs — restore the seeded streams from Reset.
+            sheet.gameplay_rng     = sim.State().gameplay_rng;
+            sheet.presentation_rng = sim.State().presentation_rng;
+            sheet.resolve_rng      = sim.State().resolve_rng;
+            sim.LoadState(sheet);
 
-            MatchEngine sim;
-            sim.Reset(seed_base + static_cast<uint32_t>(report.matches.size()));
             for (uint32_t t = 0; t < ticks_per_match; ++t) {
                 sim.Step(MatchInput{});
             }

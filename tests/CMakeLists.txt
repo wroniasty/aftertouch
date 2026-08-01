@@ -5,12 +5,28 @@ add_executable(core_tests
     core/test_fixed.cpp
     core/test_trace.cpp
     core/test_tracekit.cpp
+    core/test_tracediff.cpp
+    core/test_tracegen.cpp
+    core/test_hil2.cpp
+    core/test_corpus.cpp
     core/test_golden_trace.cpp
+    core/test_angle.cpp
+    core/test_trig_tables.cpp
+    core/test_kernel.cpp
+    core/test_rng.cpp
+    core/test_hash.cpp
+    core/test_determinism.cpp
+    core/test_match_state.cpp
+    core/test_match_clock.cpp
+    core/test_game_state.cpp
+    core/test_oop_classify.cpp
+    core/test_full_match.cpp
 )
 target_link_libraries(core_tests PRIVATE at_core at_tracekit doctest)
 target_compile_definitions(core_tests PRIVATE
     AT_FIXED_CHECKED
     AT_GOLDEN_DIR="${CMAKE_SOURCE_DIR}/tests/golden"
+    AT_CORPUS_DIR="${CMAKE_SOURCE_DIR}/tests/corpus"
 )
 add_test(NAME core_tests COMMAND core_tests)
 
@@ -24,9 +40,23 @@ endif()
 # ---------------------------------------------------------------------------
 # Asset + data format suites (no SDL)
 # ---------------------------------------------------------------------------
-add_executable(asset_tests assets/test_asset_pack.cpp)
-target_link_libraries(asset_tests PRIVATE at_assets doctest)
+add_executable(asset_tests
+    assets/test_asset_pack.cpp
+    assets/test_placeholder_parity.cpp
+)
+target_link_libraries(asset_tests PRIVATE at_assets at_asset_source doctest)
+target_compile_definitions(asset_tests PRIVATE
+    AT_PLACEHOLDER_DIR="${CMAKE_SOURCE_DIR}/assets/placeholder"
+)
 add_test(NAME asset_tests COMMAND asset_tests)
+
+# Regen committed placeholder packs: cmake --build --target gen-placeholder
+if(Python3_FOUND)
+    add_custom_target(gen-placeholder
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/gen_placeholder.py
+        COMMENT "Regenerating assets/placeholder/*"
+    )
+endif()
 
 add_executable(data_tests data/test_game_data.cpp)
 target_link_libraries(data_tests PRIVATE at_data doctest)
@@ -70,3 +100,16 @@ add_custom_target(gen-golden
     DEPENDS tracegen
     COMMENT "Regenerating tests/golden/kickoff.attr"
 )
+
+# Corpus: input logs + engine/reference ATTR + hash chains (stub oracle).
+add_custom_target(gen-corpus
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/reference/record_corpus.py
+            --tracegen $<TARGET_FILE:tracegen>
+    DEPENDS tracegen
+    COMMENT "Regenerating tests/corpus/*"
+)
+
+if(Python3_FOUND)
+    add_test(NAME corpus_python
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/test_corpus.py)
+endif()
