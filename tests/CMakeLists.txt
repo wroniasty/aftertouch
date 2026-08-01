@@ -27,6 +27,13 @@ add_executable(core_tests
     core/test_ball_predictor.cpp
     core/test_ball_oop_wire.cpp
     core/test_ball_trajectory.cpp
+    core/test_player_speed.cpp
+    core/test_player_dest.cpp
+    core/test_player_boundary.cpp
+    core/test_player_integrate.cpp
+    core/test_player_turn_flags.cpp
+    core/test_offball_dest.cpp
+    core/test_move_players.cpp
 )
 target_link_libraries(core_tests PRIVATE at_core at_tracekit doctest)
 target_compile_definitions(core_tests PRIVATE

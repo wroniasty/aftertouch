@@ -2,7 +2,7 @@
 
 Snapshot of foundation (A) and match-engine Wave 2 against [PLAN.md](PLAN.md).  
 Statuses: **done** · **partial** · **not started**.  
-Updated after B3 closed locally; regenerate this file when a part's acceptance moves.
+Updated after B4 closed locally; regenerate this file when a part's acceptance moves.
 
 ---
 
@@ -12,10 +12,10 @@ Updated after B3 closed locally; regenerate this file when a part's acceptance m
 |---|---|---|
 | **0 — Skeleton** | A1; PLAN.md §8 on Windows and macOS | **Passed** |
 | **1 — Instrument** | A2, A3, A4, A6 green; reference + engine traces in viewer | **Open** — A2/A3/A6 green; A4 first-launch prompt still open |
-| **2 — The ball moves** | B1, B2, B3, B4, B10 (+ thin C1 slice) | **In progress** — B1–B3 done |
+| **2 — The ball moves** | B1, B2, B3, B4, B10 (+ thin C1 slice) | **In progress** — B1–B4 done |
 | **3+** | rest of B / C / D / E | Not started |
 
-A5 was scheduled for Wave 3 but is implemented early; B9 can consume tactics data when it arrives. Wave 2 continues with B4 while the A4 residual remains D1-shaped.
+A5 was scheduled for Wave 3 but is implemented early; B9 can consume tactics data when it arrives. Wave 2 continues with B10 (and thin C1) while the A4 residual remains D1-shaped.
 
 ---
 
@@ -39,7 +39,28 @@ A5 was scheduled for Wave 3 but is implemented early; B9 can consume tactics dat
 | **B1** | State & layout | **done** | Full match state serialises to ATTR and back losslessly |
 | **B2** | Frame & state machine | **done** | 90′ headless ends FullTime at 0–0 |
 | **B3** | Ball physics | **done** | Scripted trajectory hash + OOP wire green |
-| **B4+** | Movement / … | **not started** | — |
+| **B4** | Player movement | **done** | 22 players, scripted 200-tick HashState pin |
+| **B5+** | Possession / … | **not started** | — |
+
+---
+
+## B4 — Player movement — **done**
+
+Subfile: [B4-player-movement.md](B4-player-movement.md)
+
+| Work item | State |
+|---|---|
+| `PlacePlayersAtKickoff` via tactics grid | landed |
+| `ApplyTeamControls` one team/tick; `MatchInput` → seven fields | landed |
+| Controlled dest (`kDefaultDestinations` / stop); boundary + turn flags | landed |
+| Off-ball tactics destinations + bottom mirror | landed |
+| Speed tables + on-ball / injury modifiers; `frameDelay` | landed |
+| `MovePlayers` axis-snap integrate all 22 | landed |
+| Non-normal speed decay (no state entry) | landed |
+| Golden unit tests + `test_move_players` acceptance | landed |
+| Golden / corpus / determinism re-pinned | landed |
+
+Done-when met: twenty-two players move under scripted input for 200 ticks with a committed `HashState` in `core_tests`. CPU joystick is B9; devices are B10.
 
 ---
 
@@ -213,8 +234,8 @@ Runtime serving is interchangeable; the shell prompt and a complete generated pa
 
 ## What Wave 2 needs next
 
-1. **B4** — player movement under scripted input  
-2. Thin C1 debug view when B3/B4 want to be watched  
+1. **B10** — match input device layer (core interface already consumes `MatchInput`)  
+2. Thin C1 debug view so movement/ball can be watched  
 
 ---
 
@@ -222,8 +243,8 @@ Runtime serving is interchangeable; the shell prompt and a complete generated pa
 
 | Area | Location |
 |---|---|
-| Core / state | `src/core/include/core/{match_state,match_clock,ball,out_of_play,hash,trace,match_*}.hpp` |
-| B1–B3 plans | `doc/implementation/B1-state-layout.md`, `B2-frame-state-machine.md`, `B3-ball-physics.md` |
+| Core / state | `src/core/include/core/{match_state,match_clock,ball,movement,out_of_play,hash,trace,match_*}.hpp` |
+| B1–B4 plans | `doc/implementation/B1-state-layout.md`, `B2-frame-state-machine.md`, `B3-ball-physics.md`, `B4-player-movement.md` |
 | Assets | `src/assets/`, `src/tools/assetc/`, `src/app/render/{asset_source,placeholder,imported}_*` |
 | Placeholder art | `assets/placeholder/` (`gen-placeholder`) |
 | Game data | `src/data/include/data/{game_data,fictional}.hpp` |

@@ -28,8 +28,8 @@ TEST_CASE("determinism gate: committed hash of a scripted scenario") {
     const uint64_t got = RunScenario();
     CHECK(got == RunScenario());
 
-    // Pinned after B3 ball physics (no A2 ball walk). If a hashed field changes
-    // on purpose, print got and update this literal.
-    constexpr uint64_t kExpected = 0xbe971e03e5eaf9d9ull;
+    // Pinned after B4 player movement. If a hashed field changes on purpose,
+    // print got and update this literal.
+    constexpr uint64_t kExpected = 0xa903a1ea71154190ull;
     CHECK(got == kExpected);
 }
