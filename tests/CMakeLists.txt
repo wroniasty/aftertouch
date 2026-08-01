@@ -44,6 +44,13 @@ add_executable(core_tests
     core/test_shot_bonus.cpp
     core/test_aftertouch.cpp
     core/test_curled_shot.cpp
+    core/test_slide_begin.cpp
+    core/test_slide_deflect.cpp
+    core/test_foul_test.cpp
+    core/test_possession_contest.cpp
+    core/test_header_select.cpp
+    core/test_header_launch.cpp
+    core/test_contest_sequence.cpp
 )
 target_link_libraries(core_tests PRIVATE at_core at_tracekit doctest)
 target_compile_definitions(core_tests PRIVATE

@@ -6,16 +6,38 @@
 #include <SDL3/SDL.h>
 
 #include <algorithm>
+#include <cmath>
 
 namespace at::render {
 
 namespace {
 
-void FillDot(SDL_Renderer* r, int cx, int cy, int half, Uint8 R, Uint8 G, Uint8 B) {
+// Match possession.hpp kDistVeryCloseSq / kDistCloseSq — capture footprint in
+// whole pitch units. Drawn radius ≈ that circle on screen.
+constexpr int32_t kCaptureRadiusSq = 32; // ~5.7 u
+constexpr int32_t kCloseRadiusSq   = 72; // ~8.5 u
+
+void FillCircle(SDL_Renderer* r, int cx, int cy, int radius, Uint8 R, Uint8 G,
+                Uint8 B) {
     SDL_SetRenderDrawColor(r, R, G, B, 255);
-    SDL_FRect rect{static_cast<float>(cx - half), static_cast<float>(cy - half),
-                   static_cast<float>(half * 2 + 1), static_cast<float>(half * 2 + 1)};
-    SDL_RenderFillRect(r, &rect);
+    if (radius <= 0) {
+        SDL_RenderPoint(r, static_cast<float>(cx), static_cast<float>(cy));
+        return;
+    }
+    const int r2 = radius * radius;
+    for (int dy = -radius; dy <= radius; ++dy) {
+        for (int dx = -radius; dx <= radius; ++dx) {
+            if (dx * dx + dy * dy <= r2)
+                SDL_RenderPoint(r, static_cast<float>(cx + dx),
+                                static_cast<float>(cy + dy));
+        }
+    }
+}
+
+int WorldRadiusToScreen(int32_t radius_sq, float scale) {
+    const float world_r = std::sqrt(static_cast<float>(radius_sq));
+    const int px = static_cast<int>(std::lround(world_r * scale));
+    return px < 1 ? 1 : px;
 }
 
 constexpr int kHeightPixelsPerUnit = 1;
@@ -43,6 +65,10 @@ void DrawMatch(SDL_Renderer* r, const MatchState& state, int match_w, int match_
     SDL_RenderLine(r, static_cast<float>(tl.x), static_cast<float>(mid.y),
                    static_cast<float>(br.x), static_cast<float>(mid.y));
 
+    const float scale = PitchUniformScale(match_w, match_h);
+    const int player_r = WorldRadiusToScreen(kCaptureRadiusSq, scale);
+    const int ctrl_r   = WorldRadiusToScreen(kCloseRadiusSq, scale);
+
     for (int i = 0; i < kPitchPlayers; ++i) {
         const Entity& e = state.players[static_cast<size_t>(i)];
         const auto sp = PitchToScreen(e.pos.x.Whole(), e.pos.y.Whole(), match_w, match_h);
@@ -50,10 +76,13 @@ void DrawMatch(SDL_Renderer* r, const MatchState& state, int match_w, int match_
         const int side = home ? 0 : 1;
         const bool ctrl =
             state.sides[static_cast<size_t>(side)].control.controlled_slot == i;
+        const int rad = ctrl ? ctrl_r : player_r;
         if (home)
-            FillDot(r, sp.x, sp.y, ctrl ? 2 : 1, 40, 120, 220);
+            FillCircle(r, sp.x, sp.y, rad, ctrl ? 70 : 40, ctrl ? 150 : 120,
+                       ctrl ? 255 : 220);
         else
-            FillDot(r, sp.x, sp.y, ctrl ? 2 : 1, 220, 60, 60);
+            FillCircle(r, sp.x, sp.y, rad, ctrl ? 255 : 220, ctrl ? 90 : 60,
+                       ctrl ? 90 : 60);
     }
 
     {
@@ -63,9 +92,10 @@ void DrawMatch(SDL_Renderer* r, const MatchState& state, int match_w, int match_
         const auto ground = PitchToScreen(bx, by, match_w, match_h);
         const int lift = std::min(z * kHeightPixelsPerUnit, kMaxHeightLift);
         const int ball_y = ground.y - lift;
-        const int half = (z >= 8) ? 3 : 2;
+        // Ball is much smaller than the capture footprint (~5.7 u → ~2 px).
+        const int ball_r = (z >= 12) ? 1 : 0;
 
-        FillDot(r, ground.x, ground.y, 1, 15, 50, 25);
+        FillCircle(r, ground.x, ground.y, 0, 15, 50, 25);
         if (lift > 1) {
             SDL_SetRenderDrawColor(r, 30, 70, 35, 255);
             SDL_RenderLine(r, static_cast<float>(ground.x), static_cast<float>(ground.y),
@@ -77,9 +107,9 @@ void DrawMatch(SDL_Renderer* r, const MatchState& state, int match_w, int match_
         SDL_SetRenderDrawColor(r, 180, 180, 60, 255);
         SDL_RenderLine(r, static_cast<float>(ground.x), static_cast<float>(ground.y),
                        static_cast<float>(dest.x), static_cast<float>(dest.y));
-        FillDot(r, dest.x, dest.y, 0, 200, 200, 80);
+        FillCircle(r, dest.x, dest.y, 0, 200, 200, 80);
 
-        FillDot(r, ground.x, ball_y, half, 245, 245, 80);
+        FillCircle(r, ground.x, ball_y, ball_r, 245, 245, 80);
     }
 }
 

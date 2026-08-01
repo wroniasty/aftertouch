@@ -5,6 +5,7 @@
 #include "core/match_clock.hpp"
 #include "core/movement.hpp"
 #include "core/shooting.hpp"
+#include "core/tackling.hpp"
 
 namespace at {
 
@@ -41,6 +42,9 @@ void MatchEngine::Step(const MatchInput& in) {
 
     // 4. MovePlayers — integrate all 22
     MovePlayers(state_);
+
+    // 4b. B7: slide/header contact, foul test, recovery timers
+    ProcessContestContacts(state_);
 
     // 5. UpdateRefereeStub — B8
 

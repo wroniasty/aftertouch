@@ -2,7 +2,7 @@
 
 Snapshot of foundation (A) and match-engine Waves 2–3 against [PLAN.md](PLAN.md).  
 Statuses: **done** · **partial** · **not started**.  
-Updated after B6 closed locally; regenerate this file when a part's acceptance moves.
+Updated after B7 closed locally; regenerate this file when a part's acceptance moves.
 
 ---
 
@@ -13,7 +13,7 @@ Updated after B6 closed locally; regenerate this file when a part's acceptance m
 | **0 — Skeleton** | A1; PLAN.md §8 on Windows and macOS | **Passed** |
 | **1 — Instrument** | A2, A3, A4, A6 green; reference + engine traces in viewer | **Open** — A2/A3/A6 green; A4 first-launch prompt still open |
 | **2 — The ball moves** | B1, B2, B3, B4, B10 (+ thin C1 slice) | **Gate met locally** — B1–B4, B10, C1a done |
-| **3 — Possession / kicks** | B5, B6, … | **In progress** — B5–B6 done; contests are B7 |
+| **3 — Possession / kicks** | B5, B6, B7, … | **In progress** — B5–B7 done; set pieces are B8 |
 
 A5 was scheduled for Wave 3 but is implemented early. Wave 2 playable slice: keyboard/gamepad + dots. Full C1 remains Wave 4.
 
@@ -42,8 +42,9 @@ A5 was scheduled for Wave 3 but is implemented early. Wave 2 playable slice: key
 | **B4** | Player movement | **done** | 22 players, scripted 200-tick HashState pin |
 | **B5** | Possession | **done** | Bands, capture/dribble, dribble-turn HashState pin |
 | **B6** | Kicking | **done** | Tap/hold launch, aftertouch, curled-shot HashState pin |
+| **B7** | Contests | **done** | Slide, foul, contest RNG, headers; contest-sequence HashState pin |
 | **B10** | Match input | **done** | Keyboard/gamepad → MatchInput (seven-field path) |
-| **B7+** | Contests / … | **not started** | — |
+| **B8+** | Set pieces / … | **not started** | — |
 
 ### Part C (Wave 2 slice)
 
@@ -51,6 +52,26 @@ A5 was scheduled for Wave 3 but is implemented early. Wave 2 playable slice: key
 |---|---|---|---|
 | **C1a** | Debug match view | **done** | Pitch + dots in 320×200; walkable with B10 |
 | **C1** | Render core (full) | **not started** | Atlas / tiles / weather — Wave 4 |
+
+---
+
+## B7 — Contests — **done**
+
+Subfile: [B7-contests.md](B7-contests.md)
+
+| Work item | State |
+|---|---|
+| Fire fork (kick iff `player_has_ball`) | landed |
+| Slide begin / early release / recovery tables | landed |
+| Ball contact deflect + good-tackle | landed |
+| Foul test (keeper exempt; from-behind) | landed |
+| Possession contest via `resolve_rng` | landed |
+| Static / jump headers + lob/drive switch | landed |
+| `ProcessContestContacts` after `MovePlayers` | landed |
+| Unit tests + `test_contest_sequence` HashState | landed |
+| Golden / corpus / hash re-pins | landed |
+
+Done-when met locally via scripted HashState pin. Corpus contest *distribution* remains A3 follow-up. Foul consequences (cards, free kicks, injury) are B8.
 
 ---
 
@@ -68,7 +89,7 @@ Subfile: [B6-shooting.md](B6-shooting.md)
 | Unit tests + `test_curled_shot` HashState | landed |
 | Golden / corpus / movement re-pinned | landed |
 
-Done-when met: scripted curled-shot `HashState` stable under Amiga profile. Table values are provisional fit targets; real SWOS ATTR remains an A3 follow-up. Contests are B7.
+Done-when met: scripted curled-shot `HashState` stable under Amiga profile. Table values are provisional fit targets; real SWOS ATTR remains an A3 follow-up.
 
 ---
 
@@ -311,7 +332,7 @@ Runtime serving is interchangeable; the shell prompt and a complete generated pa
 
 ## What Wave 2 / 3 needs next
 
-1. **B7** — contests (tackle / headers)  
+1. **B8** — set pieces & referee  
 2. Full **C1** (Wave 4) when presentation work starts — do not grow C1a  
 
 ---
@@ -320,8 +341,8 @@ Runtime serving is interchangeable; the shell prompt and a complete generated pa
 
 | Area | Location |
 |---|---|
-| Core / state | `src/core/include/core/{match_state,match_clock,ball,movement,possession,shooting,aftertouch,game_events,out_of_play,hash,trace,match_*}.hpp` |
-| B1–B6 / B10 / C1a plans | `doc/implementation/B1-…`, `B5-possession.md`, `B6-shooting.md`, `B10-match-input.md`, `C1a-debug-match-view.md` |
+| Core / state | `src/core/include/core/{match_state,match_clock,ball,movement,possession,shooting,aftertouch,tackling,heading,game_events,out_of_play,hash,trace,match_*}.hpp` |
+| B1–B7 / B10 / C1a plans | `doc/implementation/B1-…`, `B5-possession.md`, `B6-shooting.md`, `B7-contests.md`, `B10-match-input.md`, `C1a-debug-match-view.md` |
 | App input / debug draw | `src/app/input/match_input_source.*`, `src/app/render/{match_renderer,pitch_view}.*` |
 | Assets | `src/assets/`, `src/tools/assetc/`, `src/app/render/{asset_source,placeholder,imported}_*` |
 | Placeholder art | `assets/placeholder/` (`gen-placeholder`) |

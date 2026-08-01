@@ -52,6 +52,8 @@ void SeedPlayableMatch(at::MatchEngine& engine) {
             attrs.ball_control = static_cast<uint8_t>(3 + (i % 4));
             attrs.shooting = static_cast<uint8_t>(3 + (i % 4));
             attrs.finishing = static_cast<uint8_t>(3 + ((i + 1) % 4));
+            attrs.tackling = static_cast<uint8_t>(3 + (i % 4));
+            attrs.heading = static_cast<uint8_t>(4 + ((i + 2) % 5));
         }
     }
     at::PlacePlayersAtKickoff(s);

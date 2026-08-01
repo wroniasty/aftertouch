@@ -166,6 +166,7 @@ inline bool ApplyKickOrPass(MatchState& s, int side) {
     const bool is_shot = tc.normal_fire != 0;
     if (!is_pass && !is_shot) return false;
     if (GetPl(s) != GameStatePl::InProgress) return false;
+    if (!tc.player_has_ball) return false; // B7: fire without ball → contests
     if (!KickDirectionOk(tc) || !NearBallForKick(tc)) return false;
     if (tc.controlled_slot < 0 || tc.controlled_slot >= kPitchPlayers) return false;
 

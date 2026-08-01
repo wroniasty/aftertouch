@@ -90,6 +90,6 @@ TEST_CASE("scripted 200-tick movement hash is stable") {
     CHECK(a == RunScenario());
 
     // Pinned after B4. If movement changes on purpose, print and update.
-    constexpr uint64_t kExpected = 0x7e75e092104afb4full;
+    constexpr uint64_t kExpected = 0x33dcc17a31ac44bcull;
     CHECK(a == kExpected);
 }

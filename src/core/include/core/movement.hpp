@@ -5,6 +5,7 @@
 #include "core/match_state.hpp"
 #include "core/possession.hpp"
 #include "core/shooting.hpp"
+#include "core/tackling.hpp"
 #include "core/trig.hpp"
 
 #include <algorithm>
@@ -303,6 +304,8 @@ inline void ApplyControlledDestination(MatchState& s, int side) {
     TeamControl& tc = s.sides[static_cast<size_t>(side)].control;
     if (tc.controlled_slot < 0 || tc.controlled_slot >= kPitchPlayers) return;
     Entity& e = s.players[static_cast<size_t>(tc.controlled_slot)];
+    // Slide/header lock facing + dest at entry (B7).
+    if (IsSpecialMovementState(e)) return;
 
     int8_t dir = static_cast<int8_t>(tc.current_allowed_direction);
 
@@ -463,11 +466,18 @@ inline void ApplyTeamControls(MatchState& s, const MatchInput& in) {
 
     // B5: bands + capture before dest/speed so on-ball cut applies same tick.
     UpdatePossessionForSide(s, side);
+    TickWonTheBallTimer(tc);
 
-    // B6: strike before dribble so a kick is not immediately re-aimed.
-    const bool struck = ApplyKickOrPass(s, side);
+    // B7: fire without ball → slide/header; B6 kick only with possession.
+    bool contested = false;
+    bool struck = false;
+    if (tc.player_has_ball) {
+        struck = ApplyKickOrPass(s, side);
+    } else {
+        contested = TryBeginSlideOrHeader(s, side);
+    }
     // Drop unused fire pulses on this side's turn (sticky across off-ticks).
-    if (!struck) {
+    if (!struck && !contested) {
         tc.quick_fire = 0;
         tc.normal_fire = 0;
     }
@@ -485,9 +495,9 @@ inline void ApplyTeamControls(MatchState& s, const MatchInput& in) {
         ApplySpeedAndDeltasForSlot(s, slot, is_ctrl);
     }
 
-    // Dribble after carrier speed. Skip strike tick, and while Fire is held so
-    // a charged shot is not dribbled off the player's feet mid-hold.
-    if (!struck && !tc.fire_pressed && tc.fire_counter == 0)
+    // Dribble after carrier speed. Skip strike/contest tick, and while Fire is
+    // held so a charged shot is not dribbled off the player's feet mid-hold.
+    if (!struck && !contested && !tc.fire_pressed && tc.fire_counter == 0)
         ApplyDribble(s, side);
 
     // Cache ball position for the team.

@@ -18,6 +18,7 @@ TEST_CASE("in-box goalward shot adds Finishing bonus") {
     s.sides[0].control.controlled_slot = 0;
     s.sides[0].control.current_allowed_direction = static_cast<int16_t>(Dir::N);
     s.sides[0].control.pl_very_close_to_ball = 1;
+    s.sides[0].control.player_has_ball = 1;
     s.sides[0].control.normal_fire = 1;
     s.sides[0].squad[0].attrs.finishing = 4;
     s.sides[0].squad[0].attrs.shooting = 7;
@@ -40,6 +41,7 @@ TEST_CASE("outside-box goalward shot adds Velocity bonus") {
     s.sides[0].control.controlled_slot = 0;
     s.sides[0].control.current_allowed_direction = static_cast<int16_t>(Dir::N);
     s.sides[0].control.pl_very_close_to_ball = 1;
+    s.sides[0].control.player_has_ball = 1;
     s.sides[0].control.normal_fire = 1;
     s.sides[0].squad[1].attrs.finishing = 7;
     s.sides[0].squad[1].attrs.shooting = 3;

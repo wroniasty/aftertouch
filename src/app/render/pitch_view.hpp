@@ -20,14 +20,21 @@ struct ScreenPos {
     int y = 0;
 };
 
-// Map whole pitch units into 320×200, letterboxed to preserve aspect.
-inline ScreenPos PitchToScreen(int16_t pitch_x, int16_t pitch_y,
-                               int match_w = kLogicalW, int match_h = kLogicalH) {
+// Uniform pitch→screen scale (letterboxed). Same factor PitchToScreen uses.
+inline float PitchUniformScale(int match_w = kLogicalW, int match_h = kLogicalH) {
     const float world_w = static_cast<float>(kViewMaxX - kViewMinX);
     const float world_h = static_cast<float>(kViewMaxY - kViewMinY);
     const float scale_x = static_cast<float>(match_w) / world_w;
     const float scale_y = static_cast<float>(match_h) / world_h;
-    const float scale = (scale_x < scale_y) ? scale_x : scale_y;
+    return (scale_x < scale_y) ? scale_x : scale_y;
+}
+
+// Map whole pitch units into 320×200, letterboxed to preserve aspect.
+inline ScreenPos PitchToScreen(int16_t pitch_x, int16_t pitch_y,
+                               int match_w = kLogicalW, int match_h = kLogicalH) {
+    const float scale = PitchUniformScale(match_w, match_h);
+    const float world_w = static_cast<float>(kViewMaxX - kViewMinX);
+    const float world_h = static_cast<float>(kViewMaxY - kViewMinY);
     const float used_w = world_w * scale;
     const float used_h = world_h * scale;
     const float ox = (static_cast<float>(match_w) - used_w) * 0.5f;
