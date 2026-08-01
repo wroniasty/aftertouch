@@ -4,7 +4,11 @@
 #include <backends/imgui_impl_sdlrenderer3.h>
 
 #include "core/match_engine.hpp"
+#include "core/match_state.hpp"
+#include "core/movement.hpp"
+#include "input/match_input_source.hpp"
 #include "render/asset_source.hpp"
+#include "render/match_renderer.hpp"
 #include "ui_imgui/fonts.hpp"
 
 #include <cstdint>
@@ -15,7 +19,6 @@ namespace {
 constexpr int kWindowW = 1280;
 constexpr int kWindowH = 800;
 
-// Match viewport in logical pixels. Sacred. See section 6.
 constexpr int kMatchW = 320;
 constexpr int kMatchH = 200;
 
@@ -23,10 +26,42 @@ constexpr uint64_t kTickNs = 1'000'000'000ull / at::MatchEngine::kTickHz;
 
 enum class AppPhase { MainMenu, Match };
 
+void SeedPlayableMatch(at::MatchEngine& engine) {
+    engine.Reset(0xC1A00001u);
+    // First Step places players; we then overlay human/CPU + tactics.
+    engine.Step(at::MatchInput{});
+    at::MatchState s = engine.State();
+    s.sides[0].control.player_number = 1; // human home
+    s.sides[1].control.player_number = 0; // CPU away
+    s.sides[0].control.controlled_slot = 9;
+    s.sides[1].control.controlled_slot = 20;
+    for (int side = 0; side < 2; ++side) {
+        for (int r = 0; r < at::kMatchTacticRoles; ++r) {
+            for (int q = 0; q < at::kMatchBallQuadrants; ++q) {
+                const uint8_t x = static_cast<uint8_t>((r + q) % 15);
+                const uint8_t y = static_cast<uint8_t>((r * 2 + q / 5) % 16);
+                s.sides[static_cast<size_t>(side)]
+                    .tactics.cells[static_cast<size_t>(r)][static_cast<size_t>(q)] =
+                    static_cast<uint8_t>((x << 4) | y);
+            }
+        }
+        for (int i = 0; i < 11; ++i) {
+            s.sides[static_cast<size_t>(side)].squad[static_cast<size_t>(i)].attrs.speed =
+                static_cast<uint8_t>(4 + (i % 4));
+        }
+    }
+    at::PlacePlayersAtKickoff(s);
+    at::SetPl(s, at::GameStatePl::InProgress);
+    at::SetGameState(s, at::GameState::StartingGame);
+    s.clock.stoppage_event_timer = 0;
+    s.phase = at::MatchPhase::InPlay;
+    engine.LoadState(s);
+}
+
 } // namespace
 
 int main(int, char**) {
-    if (!SDL_Init(SDL_INIT_VIDEO)) {
+    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) {
         SDL_Log("SDL_Init failed: %s", SDL_GetError());
         return 1;
     }
@@ -43,16 +78,17 @@ int main(int, char**) {
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
-    ImGui::GetIO().IniFilename = nullptr;   // no imgui.ini turds in the cwd
-    at::ui::LoadFonts();                    // see fonts.cpp below
+    ImGui::GetIO().IniFilename = nullptr;
+    at::ui::LoadFonts();
     ImGui::StyleColorsDark();
     ImGui_ImplSDL3_InitForSDLRenderer(window, renderer);
     ImGui_ImplSDLRenderer3_Init(renderer);
 
-    at::MatchEngine engine;
-    AppPhase        phase = AppPhase::MainMenu;
+    at::MatchEngine      engine;
+    at::MatchInputSource input;
+    input.Init();
+    AppPhase             phase = AppPhase::MainMenu;
 
-    // A4: prefer imported packs; clean clones run on placeholder art.
     std::unique_ptr<at::IAssetSource> assets = at::OpenAssetSource(
         AT_ASSET_DIR "/generated", AT_ASSET_DIR "/placeholder");
     if (!assets) {
@@ -64,14 +100,13 @@ int main(int, char**) {
     } else {
         SDL_Log("assets: imported");
     }
-    (void)assets; // C1 draws through this; match_renderer still a stub.
+    (void)assets;
 
     uint64_t last_ns     = SDL_GetTicksNS();
     uint64_t accumulator = 0;
     bool     running     = true;
 
     while (running) {
-        // ---- events ----------------------------------------------------
         SDL_Event ev;
         while (SDL_PollEvent(&ev)) {
             ImGui_ImplSDL3_ProcessEvent(&ev);
@@ -82,18 +117,16 @@ int main(int, char**) {
             }
         }
 
-        // ---- fixed timestep --------------------------------------------
         const uint64_t now_ns = SDL_GetTicksNS();
         uint64_t       frame_ns = now_ns - last_ns;
         last_ns = now_ns;
-
-        // Clamp to avoid the spiral of death after a breakpoint or a stall.
         if (frame_ns > 250'000'000ull) frame_ns = 250'000'000ull;
 
         if (phase == AppPhase::Match) {
             accumulator += frame_ns;
             while (accumulator >= kTickNs) {
-                at::MatchInput in{};      // real input mapping comes later
+                at::MatchInput in{};
+                input.Poll(in);
                 engine.Step(in);
                 accumulator -= kTickNs;
             }
@@ -101,7 +134,6 @@ int main(int, char**) {
             accumulator = 0;
         }
 
-        // ---- render: match pass ----------------------------------------
         SDL_SetRenderDrawColor(renderer, 12, 14, 18, 255);
         SDL_RenderClear(renderer);
 
@@ -109,25 +141,11 @@ int main(int, char**) {
             SDL_SetRenderLogicalPresentation(
                 renderer, kMatchW, kMatchH,
                 SDL_LOGICAL_PRESENTATION_INTEGER_SCALE);
-
-            SDL_SetRenderDrawColor(renderer, 20, 90, 40, 255);
-            SDL_FRect pitch{0, 0, (float)kMatchW, (float)kMatchH};
-            SDL_RenderFillRect(renderer, &pitch);
-
-            SDL_SetRenderDrawColor(renderer, 235, 235, 235, 255);
-            SDL_RenderDebugText(renderer, 8.0f, 8.0f, "In progress..");
-
-            char tickbuf[64];
-            SDL_snprintf(tickbuf, sizeof tickbuf, "tick %u",
-                         engine.State().tick);
-            SDL_RenderDebugText(renderer, 8.0f, 20.0f, tickbuf);
-            SDL_RenderDebugText(renderer, 8.0f, 32.0f, "ESC to return");
-
+            at::render::DrawMatch(renderer, engine.State(), kMatchW, kMatchH);
             SDL_SetRenderLogicalPresentation(
                 renderer, 0, 0, SDL_LOGICAL_PRESENTATION_DISABLED);
         }
 
-        // ---- render: UI pass -------------------------------------------
         ImGui_ImplSDLRenderer3_NewFrame();
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
@@ -137,15 +155,10 @@ int main(int, char**) {
             ImGui::SetNextWindowSize(ImVec2(320, 200), ImGuiCond_FirstUseEver);
             ImGui::Begin("aftertouch");
             if (ImGui::Button("MATCH", ImVec2(280, 48))) {
-                engine.Reset(1);
+                SeedPlayableMatch(engine);
                 accumulator = 0;
                 phase = AppPhase::Match;
             }
-            // Diacritic smoke test (PLAN.md milestone-1 DoD): Polish, Turkish,
-            // Greek. If these render as boxes, the glyph ranges or the TTF are
-            // wrong. See ui_imgui/fonts.cpp. The u8 literal guarantees UTF-8
-            // bytes regardless of source encoding / compiler codepage; the cast
-            // hands them to ImGui's narrow-string API unchanged.
             ImGui::TextUnformatted(reinterpret_cast<const char*>(
                 u8"Zażółć gęślą jaźń  Gğüşıöç  Καλημέρα"));
             ImGui::End();

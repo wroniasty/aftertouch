@@ -2,7 +2,7 @@
 
 Snapshot of foundation (A) and match-engine Wave 2 against [PLAN.md](PLAN.md).  
 Statuses: **done** · **partial** · **not started**.  
-Updated after B4 closed locally; regenerate this file when a part's acceptance moves.
+Updated after B10 + C1a closed locally; regenerate this file when a part's acceptance moves.
 
 ---
 
@@ -12,10 +12,10 @@ Updated after B4 closed locally; regenerate this file when a part's acceptance m
 |---|---|---|
 | **0 — Skeleton** | A1; PLAN.md §8 on Windows and macOS | **Passed** |
 | **1 — Instrument** | A2, A3, A4, A6 green; reference + engine traces in viewer | **Open** — A2/A3/A6 green; A4 first-launch prompt still open |
-| **2 — The ball moves** | B1, B2, B3, B4, B10 (+ thin C1 slice) | **In progress** — B1–B4 done |
+| **2 — The ball moves** | B1, B2, B3, B4, B10 (+ thin C1 slice) | **Gate met locally** — B1–B4, B10, C1a done; kick still B6 |
 | **3+** | rest of B / C / D / E | Not started |
 
-A5 was scheduled for Wave 3 but is implemented early; B9 can consume tactics data when it arrives. Wave 2 continues with B10 (and thin C1) while the A4 residual remains D1-shaped.
+A5 was scheduled for Wave 3 but is implemented early. Wave 2 playable slice: keyboard/gamepad + dots. Full C1 remains Wave 4.
 
 ---
 
@@ -40,7 +40,46 @@ A5 was scheduled for Wave 3 but is implemented early; B9 can consume tactics dat
 | **B2** | Frame & state machine | **done** | 90′ headless ends FullTime at 0–0 |
 | **B3** | Ball physics | **done** | Scripted trajectory hash + OOP wire green |
 | **B4** | Player movement | **done** | 22 players, scripted 200-tick HashState pin |
+| **B10** | Match input | **done** | Keyboard/gamepad → MatchInput (seven-field path) |
 | **B5+** | Possession / … | **not started** | — |
+
+### Part C (Wave 2 slice)
+
+| ID | Part | Status | Acceptance |
+|---|---|---|---|
+| **C1a** | Debug match view | **done** | Pitch + dots in 320×200; walkable with B10 |
+| **C1** | Render core (full) | **not started** | Atlas / tiles / weather — Wave 4 |
+
+---
+
+## B10 — Match input — **done**
+
+Subfile: [B10-match-input.md](B10-match-input.md)
+
+| Work item | State |
+|---|---|
+| Core `GameControlEvents` + `EventsToDir` + opposite-axis filter | landed |
+| App `MatchInputSource` (keyboard + gamepad) | landed |
+| Main loop polls into `MatchEngine::Step` | landed |
+| MATCH bootstrap: home human / away CPU + tactics seed | landed |
+| `test_game_events` | landed |
+
+Done-when met: arrows/WASD drive home controlled player through the same seven-field interface. Config UI deferred.
+
+---
+
+## C1a — Debug match view — **done**
+
+Subfile: [C1a-debug-match-view.md](C1a-debug-match-view.md)
+
+| Work item | State |
+|---|---|
+| `PitchToScreen` fixed frustum → 320×200 | landed |
+| `DrawMatch` pitch + ball + 22 dots | landed |
+| `main` uses `DrawMatch` (stub removed) | landed |
+| `test_pitch_to_screen` harness | landed |
+
+Explicitly not full C1. Camera modes = C2; sprites = C3.
 
 ---
 
@@ -232,10 +271,10 @@ Acceptance met locally (`ctest` seven suites including `corpus_python`). CI gree
 
 Runtime serving is interchangeable; the shell prompt and a complete generated pack set are what remain. Optional follow-up: replace stub-oracle `reference.attr` with a real SWOS_TEST recording.
 
-## What Wave 2 needs next
+## What Wave 2 / 3 needs next
 
-1. **B10** — match input device layer (core interface already consumes `MatchInput`)  
-2. Thin C1 debug view so movement/ball can be watched  
+1. **B5+** — possession / kicks (Wave 3) so the ball can be struck, not only watched  
+2. Full **C1** (Wave 4) when presentation work starts — do not grow C1a  
 
 ---
 
@@ -243,8 +282,9 @@ Runtime serving is interchangeable; the shell prompt and a complete generated pa
 
 | Area | Location |
 |---|---|
-| Core / state | `src/core/include/core/{match_state,match_clock,ball,movement,out_of_play,hash,trace,match_*}.hpp` |
-| B1–B4 plans | `doc/implementation/B1-state-layout.md`, `B2-frame-state-machine.md`, `B3-ball-physics.md`, `B4-player-movement.md` |
+| Core / state | `src/core/include/core/{match_state,match_clock,ball,movement,game_events,out_of_play,hash,trace,match_*}.hpp` |
+| B1–B4 / B10 / C1a plans | `doc/implementation/B1-…`, `B4-player-movement.md`, `B10-match-input.md`, `C1a-debug-match-view.md` |
+| App input / debug draw | `src/app/input/match_input_source.*`, `src/app/render/{match_renderer,pitch_view}.*` |
 | Assets | `src/assets/`, `src/tools/assetc/`, `src/app/render/{asset_source,placeholder,imported}_*` |
 | Placeholder art | `assets/placeholder/` (`gen-placeholder`) |
 | Game data | `src/data/include/data/{game_data,fictional}.hpp` |

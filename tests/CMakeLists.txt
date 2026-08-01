@@ -34,6 +34,7 @@ add_executable(core_tests
     core/test_player_turn_flags.cpp
     core/test_offball_dest.cpp
     core/test_move_players.cpp
+    core/test_game_events.cpp
 )
 target_link_libraries(core_tests PRIVATE at_core at_tracekit doctest)
 target_compile_definitions(core_tests PRIVATE
@@ -82,6 +83,7 @@ add_executable(harness_tests
     harness/test_null_ui.cpp
     harness/test_season_runner.cpp
     harness/test_offscreen.cpp
+    harness/test_pitch_to_screen.cpp
 )
 target_include_directories(harness_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/src/app

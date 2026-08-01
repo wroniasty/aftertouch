@@ -7,6 +7,7 @@ add_executable(aftertouch
     ui_imgui/fonts.cpp
     ui_imgui/screens/main_menu.cpp
     render/match_renderer.cpp
+    input/match_input_source.cpp
 )
 
 target_include_directories(aftertouch PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
