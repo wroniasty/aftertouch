@@ -132,6 +132,14 @@ inline void UpdatePossession(MatchState& s, int side) {
     }
 
     if (CanCapture(s, tc, controlled) && tc.pl_very_close_to_ball) {
+        // Pass completion: credit the kicker if a pass was in flight.
+        if (tc.pass_in_progress && tc.passing_kicking_slot >= 0 &&
+            tc.passing_kicking_slot != controlled) {
+            const int ksq = SquadIndexFromPitchSlot(tc.passing_kicking_slot);
+            if (PlayerMatchStats* st = MatchStatsFor(s, side, ksq))
+                BumpU16(st->passes_completed);
+            tc.pass_in_progress = 0;
+        }
         tc.player_has_ball = 1;
         tc.ball_out_of_play = 0;
         s.clock.last_team_played = static_cast<uint8_t>(side + 1);

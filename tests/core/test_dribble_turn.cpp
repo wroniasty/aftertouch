@@ -86,7 +86,7 @@ TEST_CASE("dribble-and-turn establishes possession") {
 TEST_CASE("scripted dribble-and-turn hash is stable") {
     const uint64_t a = RunDribbleTurn();
     CHECK(a == RunDribbleTurn());
-    constexpr uint64_t kExpected = 0x67fa5be98624d44eull;
+    constexpr uint64_t kExpected = 0x26b9213e537cb462ull;
     CAPTURE(a);
     CHECK(a == kExpected);
 }

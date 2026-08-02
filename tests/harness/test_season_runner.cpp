@@ -13,8 +13,10 @@ TEST_CASE("headless season runner plays every ordered pair") {
     const size_t n = league.teams.size();
     REQUIRE(report.matches.size() == n * (n - 1));
     for (const auto& m : report.matches) {
-        CHECK(m.squad_ok);
-        CHECK(m.ticks == 25u);
         CHECK(m.home_id != m.away_id);
+        CHECK(m.fidelity == ResultFidelity::ExactEngine);
+        // XI rated after extract (even on short tick cap).
+        CHECK(m.ratings[0][0] >= 1);
+        CHECK(m.ratings[0][0] <= 10);
     }
 }

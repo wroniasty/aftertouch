@@ -2,7 +2,7 @@
 
 Snapshot of foundation (A) and match-engine Waves 2–3 against [PLAN.md](PLAN.md).  
 Statuses: **done** · **partial** · **not started**.  
-Updated after B9 closed locally; regenerate this file when a part's acceptance moves.
+Updated after B12/B11 closed locally; regenerate this file when a part's acceptance moves.
 
 ---
 
@@ -13,7 +13,7 @@ Updated after B9 closed locally; regenerate this file when a part's acceptance m
 | **0 — Skeleton** | A1; PLAN.md §8 on Windows and macOS | **Passed** |
 | **1 — Instrument** | A2, A3, A4, A6 green; reference + engine traces in viewer | **Open** — A2/A3/A6 green; A4 first-launch prompt still open |
 | **2 — The ball moves** | B1, B2, B3, B4, B10 (+ thin C1 slice) | **Gate met locally** — B1–B4, B10, C1a done |
-| **3 — Possession / kicks** | B5–B9, B12, B11 | **In progress** — B5–B9 done; next B12 then B11 |
+| **3 — Possession / kicks** | B5–B9, B12, B11 | **Gate met locally** — B5–B12, B11 done; play-feel gate remains |
 
 A5 was scheduled for Wave 3 but is implemented early. Wave 2 playable slice: keyboard/gamepad + dots. Full C1 remains Wave 4.
 
@@ -46,8 +46,8 @@ A5 was scheduled for Wave 3 but is implemented early. Wave 2 playable slice: key
 | **B8** | Set pieces & referee | **done** | Restarts, aim tables, cards/injury, ref machine; restart-cycle HashState |
 | **B9** | AI | **done** | Selection, GK, CPU brain-as-joystick; CPU-vs-CPU + HashState pin |
 | **B10** | Match input | **done** | Keyboard/gamepad → MatchInput (seven-field path) |
-| **B12** | Performance rating | **not started** | — |
-| **B11** | Result simulation | **not started** | Needs B9 + B12 |
+| **B12** | Performance rating | **done** | Chronicle + match_stats + band weights; HashState unchanged by compute |
+| **B11** | Result simulation | **done** | Scripted/Table/Engine `IResultSimulator`; envelope tests |
 
 ### Part C (Wave 2 slice)
 
@@ -74,6 +74,41 @@ Subfile: [B8-set-pieces.md](B8-set-pieces.md)
 | Golden / corpus re-pins | landed |
 
 Done-when met locally: restart families resume to open play; scripted HashState pin. Card camera art is C2/C3.
+
+---
+
+## B12 — Performance rating — **done**
+
+Subfile: [B12-performance-rating.md](B12-performance-rating.md)
+
+| Work item | State |
+|---|---|
+| MatchChronicle + goal/card/injury/corner events | landed |
+| Goal attribution + attempts/corners latches | landed |
+| `PlayerMatchStats` + ATTR / HashState | landed |
+| Wire passes/tackles/headers/carry/saves/fouls | landed |
+| Position-band weights + weighted `ComputePlayerRating` | landed |
+| B11 synth invents `match_stats` | landed |
+| Unit + HashState invariance + band tests | landed |
+| Golden / corpus / hash re-pins (`match_stats` wire) | landed |
+
+Done-when met locally: single 1–10 + expanded breakdown; compute is post-match only.
+
+---
+
+## B11 — Result simulation — **done**
+
+Subfile: [B11-result-simulation.md](B11-result-simulation.md)
+
+| Work item | State |
+|---|---|
+| `MatchResult` + fidelity + extract helpers | landed |
+| `IResultSimulator` + Scripted / Table / Engine | landed (`data/result_simulator.hpp`) |
+| Harness season runner uses Engine backend | landed |
+| Fixed-seed Table vs Engine envelope | landed |
+| Golden / corpus / hash re-pins (chronicle wire) | landed |
+
+Done-when met locally: interchangeable backends; resolve RNG isolated from match HashState.
 
 ---
 

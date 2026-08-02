@@ -198,6 +198,11 @@ inline bool ApplyKickOrPass(MatchState& s, int side) {
                                     kBallSpeedPassingIncrease[static_cast<size_t>(idx)]);
         delta_z = Fix::FromRaw(kBallPassingDeltaZRaw); // ground pass
         tc.pass_in_progress = 1;
+        {
+            const int sq = SquadIndexFromPitchSlot(slot);
+            if (PlayerMatchStats* st = MatchStatsFor(s, side, sq))
+                BumpU16(st->passes_attempted);
+        }
     } else {
         const Dest off = kDefaultDestinations[static_cast<size_t>(dir)];
         ball.dest_x = static_cast<int16_t>(bx + off.x);

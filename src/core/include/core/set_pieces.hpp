@@ -410,6 +410,16 @@ inline uint8_t RollCardForFoul(MatchState& s, int offending_side, int tackler_sl
     s.globals.which_card = card;
     s.globals.booked_player = static_cast<int8_t>(tackler_slot);
     s.globals.last_team_booked = static_cast<uint8_t>(offending_side + 1);
+    {
+        const uint8_t sq = static_cast<uint8_t>(
+            (tackler_slot >= 0 && tackler_slot < kPitchPlayers)
+                ? (tackler_slot % 11)
+                : 0);
+        AppendChronicle(s,
+                        (card == 2 || card == 3) ? MatchEventKind::Red
+                                                 : MatchEventKind::Yellow,
+                        static_cast<uint8_t>(offending_side), sq);
+    }
     ActivateReferee(s);
     return card;
 }
@@ -429,6 +439,13 @@ inline void RollInjuryOnTackle(MatchState& s, int victim_side, int victim_slot) 
     constexpr std::array<int16_t, 7> kLevels = {42, 7, 5, 4, 3, 2, 1};
     const int idx = static_cast<int>(s.resolve_rng.Draw() % 7);
     v.injury_level = static_cast<int16_t>(v.injury_level + kLevels[static_cast<size_t>(idx)]);
+    if (victim_slot >= 0 && victim_slot < kPitchPlayers) {
+        const uint8_t sq = static_cast<uint8_t>(victim_slot % 11);
+        s.sides[static_cast<size_t>(victim_side)].squad[static_cast<size_t>(sq)]
+            .is_injured = 1;
+        AppendChronicle(s, MatchEventKind::Injury,
+                        static_cast<uint8_t>(victim_side), sq);
+    }
 }
 
 inline void ApplyFoulConsequences(MatchState& s, int offending_side, int tackler_slot,
@@ -438,6 +455,12 @@ inline void ApplyFoulConsequences(MatchState& s, int offending_side, int tackler
     const int16_t vy = victim.pos.y.Whole();
     const bool in_pen = vx >= kPenBoxXMin && vx <= kPenBoxXMax &&
                         (vy <= kPenaltyBoxTopY || vy >= kPenaltyBoxBotY);
+
+    {
+        const int sq = SquadIndexFromPitchSlot(tackler_slot);
+        if (PlayerMatchStats* st = MatchStatsFor(s, offending_side, sq))
+            BumpU16(st->fouls_conceded);
+    }
 
     RollInjuryOnTackle(s, 1 - offending_side, victim_slot);
     RollCardForFoul(s, offending_side, tackler_slot, victim_slot, in_pen);

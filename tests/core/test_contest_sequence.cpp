@@ -71,7 +71,7 @@ uint64_t RunContestSequence() {
 TEST_CASE("scripted contest sequence hash is stable") {
     const uint64_t a = RunContestSequence();
     CHECK(a == RunContestSequence());
-    constexpr uint64_t kExpected = 0xceabcbb0b0f0fb43ull;
+    constexpr uint64_t kExpected = 0x2005fede0ff55ea0ull;
     CAPTURE(a);
     CHECK(a == kExpected);
 }

@@ -59,6 +59,7 @@ add_executable(core_tests
     core/test_referee_machine.cpp
     core/test_restart_cycle.cpp
     core/test_ai_b9.cpp
+    core/test_performance_rating.cpp
 )
 target_link_libraries(core_tests PRIVATE at_core at_tracekit doctest)
 target_compile_definitions(core_tests PRIVATE
@@ -106,6 +107,7 @@ add_test(NAME data_tests COMMAND data_tests)
 add_executable(harness_tests
     harness/test_null_ui.cpp
     harness/test_season_runner.cpp
+    harness/test_result_sim.cpp
     harness/test_offscreen.cpp
     harness/test_pitch_to_screen.cpp
 )

@@ -109,6 +109,11 @@ inline void BeginSlide(MatchState& s, int side) {
     tc.last_heading_tackling_slot = tc.controlled_slot;
     tc.quick_fire = 0;
     tc.normal_fire = 0;
+    {
+        const int sq = SquadIndexFromPitchSlot(tc.controlled_slot);
+        if (PlayerMatchStats* st = MatchStatsFor(s, side, sq))
+            BumpU16(st->tackles);
+    }
 }
 
 inline bool WantContestEntry(const TeamControl& tc) {

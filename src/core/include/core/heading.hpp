@@ -62,6 +62,11 @@ inline void BeginJumpHeader(MatchState& s, int side) {
     tc.ball_can_be_controlled = 0;
     tc.quick_fire = 0;
     tc.normal_fire = 0;
+    {
+        const int sq = SquadIndexFromPitchSlot(tc.controlled_slot);
+        if (PlayerMatchStats* st = MatchStatsFor(s, side, sq))
+            BumpU16(st->headers);
+    }
 }
 
 inline void BeginStaticHeader(MatchState& s, int side) {
@@ -86,6 +91,11 @@ inline void BeginStaticHeader(MatchState& s, int side) {
     tc.last_heading_tackling_slot = tc.controlled_slot;
     tc.quick_fire = 0;
     tc.normal_fire = 0;
+    {
+        const int sq = SquadIndexFromPitchSlot(tc.controlled_slot);
+        if (PlayerMatchStats* st = MatchStatsFor(s, side, sq))
+            BumpU16(st->headers);
+    }
 }
 
 enum class HeaderTrajectory : uint8_t { Base, Flying, Lob };

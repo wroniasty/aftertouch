@@ -76,7 +76,7 @@ TEST_CASE("restart cycle reaches InProgress") {
 TEST_CASE("scripted restart cycle hash is stable") {
     const uint64_t a = RunRestartCycle();
     CHECK(a == RunRestartCycle());
-    constexpr uint64_t kExpected = 0x787982c5068c335aull;
+    constexpr uint64_t kExpected = 0x9f318044c673005eull;
     CAPTURE(a);
     CHECK(a == kExpected);
 }

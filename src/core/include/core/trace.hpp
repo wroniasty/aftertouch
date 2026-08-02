@@ -81,6 +81,8 @@ inline constexpr size_t kGlobalsWireSize =
 
 inline constexpr size_t kTeamStatsWireSize = 7 * 4; // seven uint32 counters
 
+inline constexpr size_t kPlayerMatchStatsWireSize = 8 * 2; // seven uint16 + pad
+
 inline constexpr size_t kClockWireSize =
     8 +     // uint8 block
     5 * 2 + // minute, seconds, accumulator, end_game, stoppage
@@ -88,13 +90,16 @@ inline constexpr size_t kClockWireSize =
 
 inline constexpr size_t kSurfaceWireSize = 3 * 2 + 2; // three int16 + pad
 
+inline constexpr size_t kChronicleWireSize =
+    4 + kMatchChronicleCap * 4; // count+pads + events
+
 inline constexpr size_t kSideWireSize =
     kTeamSheetWireSize + kTeamControlWireSize +
     kMatchSquadSize * kSquadPlayerWireSize + kTacticsWireSize +
-    kTeamStatsWireSize;
+    kTeamStatsWireSize + kMatchSquadSize * kPlayerMatchStatsWireSize;
 
 // tick(4)+phase(1)+input(4)+score(2)+last_roll(1) + arena + sides×2 + globals +
-// clock + surface + 3×RngStream(4) + hash(8)
+// clock + surface + 3×RngStream(4) + chronicle + hash(8)
 inline constexpr size_t kRecordPrefixSize = 4 + 1 + 4 + 2 + 1;
 inline constexpr size_t kRecordSize =
     kRecordPrefixSize +
@@ -104,6 +109,7 @@ inline constexpr size_t kRecordSize =
     kClockWireSize +
     kSurfaceWireSize +
     3 * 4 +
+    kChronicleWireSize +
     8;
 
 // Alias kept for tracediff entity classification (first Fix block of an entity).
@@ -488,12 +494,37 @@ constexpr void GetStats(std::span<const uint8_t> b, size_t& at, TeamStats& t) {
     t.on_target      = GetU32(b, at);
 }
 
+constexpr void PutPlayerMatchStats(std::span<uint8_t> b, size_t& at,
+                                   const PlayerMatchStats& m) {
+    PutU16(b, at, m.passes_attempted);
+    PutU16(b, at, m.passes_completed);
+    PutU16(b, at, m.tackles);
+    PutU16(b, at, m.headers);
+    PutU16(b, at, m.carry_distance);
+    PutU16(b, at, m.saves);
+    PutU16(b, at, m.fouls_conceded);
+    PutU16(b, at, m._pad);
+}
+
+constexpr void GetPlayerMatchStats(std::span<const uint8_t> b, size_t& at,
+                                   PlayerMatchStats& m) {
+    m.passes_attempted = GetU16(b, at);
+    m.passes_completed = GetU16(b, at);
+    m.tackles          = GetU16(b, at);
+    m.headers          = GetU16(b, at);
+    m.carry_distance   = GetU16(b, at);
+    m.saves            = GetU16(b, at);
+    m.fouls_conceded   = GetU16(b, at);
+    m._pad             = GetU16(b, at);
+}
+
 constexpr void PutSide(std::span<uint8_t> b, size_t& at, const MatchSide& s) {
     PutSheet(b, at, s.sheet);
     PutControl(b, at, s.control);
     for (const auto& p : s.squad) PutSquad(b, at, p);
     PutTactics(b, at, s.tactics);
     PutStats(b, at, s.stats);
+    for (const auto& m : s.match_stats) PutPlayerMatchStats(b, at, m);
 }
 
 constexpr void GetSide(std::span<const uint8_t> b, size_t& at, MatchSide& s) {
@@ -502,6 +533,7 @@ constexpr void GetSide(std::span<const uint8_t> b, size_t& at, MatchSide& s) {
     for (auto& p : s.squad) GetSquad(b, at, p);
     GetTactics(b, at, s.tactics);
     GetStats(b, at, s.stats);
+    for (auto& m : s.match_stats) GetPlayerMatchStats(b, at, m);
 }
 
 constexpr void PutClock(std::span<uint8_t> b, size_t& at, const MatchClock& c) {
@@ -616,6 +648,34 @@ constexpr void GetGlobals(std::span<const uint8_t> b, size_t& at, MatchGlobals& 
     g.num_own_goals_away = GetU8(b, at);
 }
 
+constexpr void PutChronicle(std::span<uint8_t> b, size_t& at,
+                            const MatchChronicle& c) {
+    PutU8(b, at, c.count);
+    PutU8(b, at, c._pad0);
+    PutU8(b, at, c._pad1);
+    PutU8(b, at, c._pad2);
+    for (const MatchEvent& e : c.events) {
+        PutU8(b, at, e.kind);
+        PutU8(b, at, e.side);
+        PutU8(b, at, e.squad_index);
+        PutU8(b, at, e.minute);
+    }
+}
+
+constexpr void GetChronicle(std::span<const uint8_t> b, size_t& at,
+                            MatchChronicle& c) {
+    c.count = GetU8(b, at);
+    c._pad0 = GetU8(b, at);
+    c._pad1 = GetU8(b, at);
+    c._pad2 = GetU8(b, at);
+    for (MatchEvent& e : c.events) {
+        e.kind = GetU8(b, at);
+        e.side = GetU8(b, at);
+        e.squad_index = GetU8(b, at);
+        e.minute = GetU8(b, at);
+    }
+}
+
 constexpr void PutRng(std::span<uint8_t> b, size_t& at, const RngStream& r) {
     PutU8(b, at, r.seed);
     PutU8(b, at, r.xor_key);
@@ -697,6 +757,7 @@ constexpr size_t SerializeRecord(const MatchState& s, const MatchInput& in,
     detail::PutRng(out, at, s.gameplay_rng);
     detail::PutRng(out, at, s.presentation_rng);
     detail::PutRng(out, at, s.resolve_rng);
+    detail::PutChronicle(out, at, s.chronicle);
 
     const uint64_t h = HashBytes(out.subspan(0, at));
     detail::PutU64(out, at, h);
@@ -729,6 +790,7 @@ constexpr bool DeserializeRecord(std::span<const uint8_t> in, MatchState& s,
     detail::GetRng(in, at, s.gameplay_rng);
     detail::GetRng(in, at, s.presentation_rng);
     detail::GetRng(in, at, s.resolve_rng);
+    detail::GetChronicle(in, at, s.chronicle);
 
     const uint64_t want = HashBytes(in.subspan(0, at));
     const uint64_t got  = detail::GetU64(in, at);

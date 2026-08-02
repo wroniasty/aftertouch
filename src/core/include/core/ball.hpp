@@ -213,6 +213,51 @@ inline void CalculateNextBallPosition(MatchState& s) {
     s.globals.ball_next_y_ground_y = s.globals.ball_next_y;
 }
 
+// Attribute a goal to a squad index on the scoring side (B12).
+inline uint8_t AttributeGoalSquadIndex(const MatchState& s, int side) {
+    const TeamControl& tc = s.sides[static_cast<size_t>(side)].control;
+    const int base = side * 11;
+    if (tc.passing_kicking_slot >= base && tc.passing_kicking_slot < base + 11)
+        return static_cast<uint8_t>(tc.passing_kicking_slot - base);
+    if (tc.controlled_slot >= base && tc.controlled_slot < base + 11)
+        return static_cast<uint8_t>(tc.controlled_slot - base);
+    return 9; // default striker
+}
+
+// SIMULATION §7: latch goal attempt once per shot when ball is in the attempt
+// band traveling toward a goal line with projected x in mouth/attempt range.
+inline void LatchGoalAttempt(MatchState& s) {
+    if (GetPl(s) != GameStatePl::InProgress) return;
+    Entity& ball = s.ball;
+    if (ball.speed == 0) {
+        s.globals.attempt_latched = 0;
+        return;
+    }
+    const int16_t x = ball.pos.x.Whole();
+    const int16_t y = ball.pos.y.Whole();
+    const bool in_attempt_x = x >= kGoalAttemptLeft && x <= kGoalAttemptRight;
+    if (!in_attempt_x) {
+        s.globals.attempt_latched = 0;
+        return;
+    }
+    const bool toward_top = ball.delta.y.Raw() < 0 && y <= kPenaltyBoxTopY;
+    const bool toward_bot = ball.delta.y.Raw() > 0 && y >= kPenaltyBoxBotY;
+    if (!toward_top && !toward_bot) return;
+    if (s.globals.attempt_latched) return;
+
+    const uint8_t team = s.clock.last_team_played;
+    if (team != 1 && team != 2) return;
+    // Carrier still has it — not a shot.
+    if (s.sides[0].control.player_has_ball || s.sides[1].control.player_has_ball)
+        return;
+
+    s.globals.attempt_latched = 1;
+    TeamStats& st = s.sides[static_cast<size_t>(team - 1)].stats;
+    ++st.goal_attempts;
+    const int16_t sx = s.globals.ball_next_x;
+    if (sx >= kGoalMouthMinX && sx <= kGoalMouthMaxX) ++st.on_target;
+}
+
 inline void WireOutOfPlay(MatchState& s) {
     if (GetPl(s) != GameStatePl::InProgress) return;
 
@@ -224,6 +269,7 @@ inline void WireOutOfPlay(MatchState& s) {
 
     s.globals.foul_x = x;
     s.globals.foul_y = y;
+    s.globals.attempt_latched = 0;
     CompleteOopRestart(s, result->state, result->is_goal);
 
     if (result->is_goal) {
@@ -231,9 +277,26 @@ inline void WireOutOfPlay(MatchState& s) {
             (y < kPlayableMinY)
                 ? s.globals.team_playing_up
                 : static_cast<uint8_t>(3 - s.globals.team_playing_up);
-        if (scorer == 1 || scorer == 2)
-            ++s.score[static_cast<size_t>(scorer - 1)];
+        if (scorer == 1 || scorer == 2) {
+            const int side = static_cast<int>(scorer) - 1;
+            ++s.score[static_cast<size_t>(side)];
+            const uint8_t sq = AttributeGoalSquadIndex(s, side);
+            ++s.sides[static_cast<size_t>(side)].squad[static_cast<size_t>(sq)]
+                  .goals_scored;
+            AppendChronicle(s, MatchEventKind::Goal, static_cast<uint8_t>(side),
+                            sq);
+        }
         s.phase = MatchPhase::Goal;
+        return;
+    }
+
+    if (IsCornerState(result->state)) {
+        const uint8_t taking = TakingTeamForOop(s, result->state, false);
+        if (taking == 1 || taking == 2) {
+            const uint8_t side = static_cast<uint8_t>(taking - 1);
+            ++s.sides[static_cast<size_t>(side)].stats.corners_won;
+            AppendChronicle(s, MatchEventKind::Corner, side, 0);
+        }
     }
 }
 
@@ -267,6 +330,7 @@ inline void UpdateBall(MatchState& s) {
     ApplyGoalFrame(s, saved_for_frame);
 
     CalculateNextBallPosition(s);
+    LatchGoalAttempt(s);
     WireOutOfPlay(s);
 }
 

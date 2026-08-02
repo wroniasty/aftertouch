@@ -335,6 +335,61 @@ static_assert(sizeof(TeamStats) == 28);
 static_assert(std::has_unique_object_representations_v<TeamStats>);
 
 // ---------------------------------------------------------------------------
+// Per-player match counters for B12 ratings (volume stats; not chronicle)
+// ---------------------------------------------------------------------------
+
+struct PlayerMatchStats {
+    uint16_t passes_attempted = 0;
+    uint16_t passes_completed = 0;
+    uint16_t tackles          = 0;
+    uint16_t headers          = 0;
+    uint16_t carry_distance   = 0;
+    uint16_t saves            = 0;
+    uint16_t fouls_conceded   = 0;
+    uint16_t _pad             = 0;
+};
+
+static_assert(sizeof(PlayerMatchStats) == 16);
+static_assert(std::has_unique_object_representations_v<PlayerMatchStats>);
+
+inline constexpr uint16_t kCarryDistanceCap = 60000;
+
+// ---------------------------------------------------------------------------
+// Match chronicle — append-only events for B12 (Step never reads)
+// ---------------------------------------------------------------------------
+
+enum class MatchEventKind : uint8_t {
+    None    = 0,
+    Goal    = 1,
+    Yellow  = 2,
+    Red     = 3,
+    Injury  = 4,
+    Corner  = 5,
+};
+
+struct MatchEvent {
+    uint8_t kind         = 0; // MatchEventKind
+    uint8_t side         = 0; // 0 home / 1 away
+    uint8_t squad_index  = 0; // 0..15
+    uint8_t minute       = 0;
+};
+
+static_assert(sizeof(MatchEvent) == 4);
+static_assert(std::has_unique_object_representations_v<MatchEvent>);
+
+inline constexpr int kMatchChronicleCap = 32;
+
+struct MatchChronicle {
+    uint8_t count = 0;
+    uint8_t _pad0 = 0;
+    uint8_t _pad1 = 0;
+    uint8_t _pad2 = 0;
+    std::array<MatchEvent, kMatchChronicleCap> events{};
+};
+
+static_assert(std::has_unique_object_representations_v<MatchChronicle>);
+
+// ---------------------------------------------------------------------------
 // MatchClock — fixed-step Amiga-profile clock (B2 / SIMULATION.md §3)
 // ---------------------------------------------------------------------------
 
@@ -405,8 +460,8 @@ struct MatchGlobals {
     int16_t  marked_player_away = -1;
     uint8_t  num_own_goals_home = 0;
     uint8_t  num_own_goals_away = 0;
+    uint8_t  attempt_latched = 0; // B12: one latch per shot toward goal
     uint8_t  _pad0 = 0;
-    uint8_t  _pad1 = 0;
 };
 
 static_assert(std::has_unique_object_representations_v<MatchGlobals>);
@@ -421,6 +476,7 @@ struct MatchSide {
     std::array<SquadPlayer, kMatchSquadSize> squad{};
     TacticsSnapshot tactics{};
     TeamStats       stats{};
+    std::array<PlayerMatchStats, kMatchSquadSize> match_stats{};
 };
 
 static_assert(std::has_unique_object_representations_v<MatchSide>);
@@ -453,6 +509,8 @@ struct MatchState {
     RngStream gameplay_rng{};
     RngStream presentation_rng{};
     RngStream resolve_rng{};
+
+    MatchChronicle chronicle{};
 
     // --- accessors (discipline for B2+) ------------------------------------
 
@@ -495,6 +553,58 @@ struct MatchState {
 
 static_assert(std::is_trivially_copyable_v<MatchState>);
 static_assert(std::has_unique_object_representations_v<MatchState>);
+
+inline void AppendChronicle(MatchState& s, MatchEventKind kind, uint8_t side,
+                            uint8_t squad_index) {
+    if (s.chronicle.count >= kMatchChronicleCap) return;
+    MatchEvent& e = s.chronicle.events[static_cast<size_t>(s.chronicle.count)];
+    e.kind = static_cast<uint8_t>(kind);
+    e.side = side > 1 ? uint8_t{0} : side;
+    e.squad_index = squad_index >= kMatchSquadSize ? uint8_t{0} : squad_index;
+    int16_t m = s.clock.displayed_minute;
+    if (m < 0) m = 0;
+    if (m > 255) m = 255;
+    e.minute = static_cast<uint8_t>(m);
+    ++s.chronicle.count;
+}
+
+inline PlayerMatchStats* MatchStatsFor(MatchState& s, int side, int squad_index) {
+    if (side < 0 || side > 1 || squad_index < 0 || squad_index >= kMatchSquadSize)
+        return nullptr;
+    return &s.sides[static_cast<size_t>(side)]
+                .match_stats[static_cast<size_t>(squad_index)];
+}
+
+inline void BumpU16(uint16_t& v, uint16_t n = 1) {
+    const uint32_t sum = static_cast<uint32_t>(v) + n;
+    v = sum > 65535u ? uint16_t{65535} : static_cast<uint16_t>(sum);
+}
+
+inline int SquadIndexFromPitchSlot(int slot) {
+    if (slot < 0 || slot >= kPitchPlayers) return -1;
+    return slot % 11;
+}
+
+inline void AddCarryDistanceForCarrier(MatchState& s, int side) {
+    TeamControl& tc = s.sides[static_cast<size_t>(side)].control;
+    if (!tc.player_has_ball || tc.controlled_slot < 0 ||
+        tc.controlled_slot >= kPitchPlayers)
+        return;
+    const Entity& e = s.players[static_cast<size_t>(tc.controlled_slot)];
+    int32_t dx = e.delta.x.Whole();
+    int32_t dy = e.delta.y.Whole();
+    if (dx < 0) dx = -dx;
+    if (dy < 0) dy = -dy;
+    const int32_t step = dx + dy;
+    if (step <= 0) return;
+    const int sq = SquadIndexFromPitchSlot(tc.controlled_slot);
+    PlayerMatchStats* st = MatchStatsFor(s, side, sq);
+    if (!st) return;
+    uint32_t next = static_cast<uint32_t>(st->carry_distance) +
+                    static_cast<uint32_t>(step);
+    if (next > kCarryDistanceCap) next = kCarryDistanceCap;
+    st->carry_distance = static_cast<uint16_t>(next);
+}
 
 // Legacy alias used by a few call sites during the A2 era.
 using EntityState = Entity;

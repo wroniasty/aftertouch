@@ -113,7 +113,8 @@ TEST_CASE("Trace record is fixed width, so tick maps to offset by arithmetic") {
           trace::kRecordPrefixSize +
               trace::kArenaEntityCount * trace::kEntityWireSize +
               2 * trace::kSideWireSize + trace::kGlobalsWireSize +
-              trace::kClockWireSize + trace::kSurfaceWireSize + 12 + 8);
+              trace::kClockWireSize + trace::kSurfaceWireSize + 12 +
+              trace::kChronicleWireSize + 8);
 }
 
 TEST_CASE("Trace record refuses a buffer that is too small") {

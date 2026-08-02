@@ -89,6 +89,8 @@ inline void ApplyGoalkeeperAI(MatchState& s, int side) {
                 tc.controlled_slot = static_cast<int8_t>(slot);
                 for (int i = 0; i < 2; ++i)
                     s.sides[static_cast<size_t>(i)].control.ball_in_play = 0;
+                if (PlayerMatchStats* ms = MatchStatsFor(s, side, 0))
+                    BumpU16(ms->saves);
             } else {
                 s.ball.speed = 1200;
                 s.ball.dest_x = s.ball.pos.x.Whole();

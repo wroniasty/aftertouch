@@ -426,6 +426,9 @@ inline void PlacePlayersAtKickoff(MatchState& s) {
             e.speed = 0;
             e.direction = (side == 0) ? 4 : 0; // face opponent's half
             e.player_direction = e.direction;
+            // B12: start XI marked as having played.
+            s.sides[static_cast<size_t>(side)].squad[static_cast<size_t>(i)]
+                .half_played = 1;
         }
     }
 }
@@ -515,6 +518,8 @@ inline void ApplyTeamControls(MatchState& s, const MatchInput& in) {
     // held so a charged shot is not dribbled off the player's feet mid-hold.
     if (!struck && !contested && !tc.fire_pressed && tc.fire_counter == 0)
         ApplyDribble(s, side);
+
+    AddCarryDistanceForCarrier(s, side);
 
     // Cache ball position for the team.
     tc.ball_x = s.ball.pos.x.Whole();
