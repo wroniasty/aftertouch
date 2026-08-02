@@ -79,13 +79,14 @@ TEST_CASE("hold fire near ball launches a shot") {
 
     CHECK(eng.State().sides[0].control.player_has_ball == 0);
     CHECK(eng.State().sides[0].control.pass_kick_timer > 0);
-    CHECK(eng.State().ball.speed > 0);
+    // Speed may already be 0 if the ball crossed the byline and B8 parked it.
+    CHECK(eng.State().clock.last_team_played == 1);
 }
 
 TEST_CASE("scripted curled shot hash is stable") {
     const uint64_t a = RunCurledShot();
     CHECK(a == RunCurledShot());
-    constexpr uint64_t kExpected = 0x7beee033074190edull;
+    constexpr uint64_t kExpected = 0x217aab61471ec3e5ull;
     CAPTURE(a);
     CHECK(a == kExpected);
 }

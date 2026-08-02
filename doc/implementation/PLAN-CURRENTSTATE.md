@@ -2,7 +2,7 @@
 
 Snapshot of foundation (A) and match-engine Waves 2–3 against [PLAN.md](PLAN.md).  
 Statuses: **done** · **partial** · **not started**.  
-Updated after B7 closed locally; regenerate this file when a part's acceptance moves.
+Updated after B9 closed locally; regenerate this file when a part's acceptance moves.
 
 ---
 
@@ -13,7 +13,7 @@ Updated after B7 closed locally; regenerate this file when a part's acceptance m
 | **0 — Skeleton** | A1; PLAN.md §8 on Windows and macOS | **Passed** |
 | **1 — Instrument** | A2, A3, A4, A6 green; reference + engine traces in viewer | **Open** — A2/A3/A6 green; A4 first-launch prompt still open |
 | **2 — The ball moves** | B1, B2, B3, B4, B10 (+ thin C1 slice) | **Gate met locally** — B1–B4, B10, C1a done |
-| **3 — Possession / kicks** | B5, B6, B7, … | **In progress** — B5–B7 done; set pieces are B8 |
+| **3 — Possession / kicks** | B5–B9, B12, B11 | **In progress** — B5–B9 done; next B12 then B11 |
 
 A5 was scheduled for Wave 3 but is implemented early. Wave 2 playable slice: keyboard/gamepad + dots. Full C1 remains Wave 4.
 
@@ -43,8 +43,11 @@ A5 was scheduled for Wave 3 but is implemented early. Wave 2 playable slice: key
 | **B5** | Possession | **done** | Bands, capture/dribble, dribble-turn HashState pin |
 | **B6** | Kicking | **done** | Tap/hold launch, aftertouch, curled-shot HashState pin |
 | **B7** | Contests | **done** | Slide, foul, contest RNG, headers; contest-sequence HashState pin |
+| **B8** | Set pieces & referee | **done** | Restarts, aim tables, cards/injury, ref machine; restart-cycle HashState |
+| **B9** | AI | **done** | Selection, GK, CPU brain-as-joystick; CPU-vs-CPU + HashState pin |
 | **B10** | Match input | **done** | Keyboard/gamepad → MatchInput (seven-field path) |
-| **B8+** | Set pieces / … | **not started** | — |
+| **B12** | Performance rating | **not started** | — |
+| **B11** | Result simulation | **not started** | Needs B9 + B12 |
 
 ### Part C (Wave 2 slice)
 
@@ -52,6 +55,44 @@ A5 was scheduled for Wave 3 but is implemented early. Wave 2 playable slice: key
 |---|---|---|---|
 | **C1a** | Debug match view | **done** | Pitch + dots in 320×200; walkable with B10 |
 | **C1** | Render core (full) | **not started** | Atlas / tiles / weather — Wave 4 |
+
+---
+
+## B8 — Set pieces & referee — **done**
+
+Subfile: [B8-set-pieces.md](B8-set-pieces.md)
+
+| Work item | State |
+|---|---|
+| `BeginRestart` four writes + ball park | landed |
+| Foul → pen / FK / Foul classify; wired from B7 | landed |
+| OOP complete-setup + throw-in ±3 place | landed |
+| Aim tables + `ApplyRestartTake` → InProgress | landed |
+| Cards + injury rolls via `resolve_rng` | landed |
+| Referee state machine (`UpdateReferee`) | landed |
+| Unit tests + `test_restart_cycle` HashState | landed |
+| Golden / corpus re-pins | landed |
+
+Done-when met locally: restart families resume to open play; scripted HashState pin. Card camera art is C2/C3.
+
+---
+
+## B9 — AI — **done**
+
+Subfile: [B9-ai.md](B9-ai.md)
+
+| Work item | State |
+|---|---|
+| Pass-target + controlled selection exclusions / switch lockout | landed |
+| `AI_SetControlsDirection` shoot/pass/dribble/chase | landed |
+| CPU aftertouch + restart taker | landed |
+| Goalkeeper rest/claim/dive/catch | landed |
+| Wire `ApplyTeamControls` / fire / aftertouch (CPU vs human) | landed |
+| Goal → centre stoppage resume (unblocks full match under AI) | landed |
+| Unit tests + CPU-vs-CPU + `test_ai_b9` HashState | landed |
+| Golden / corpus / hash re-pins | landed |
+
+Done-when met locally: CPU vs CPU short match moves the ball; scripted HashState pin. Marking/pressing and difficulty tiers remain out of scope.
 
 ---
 
@@ -71,7 +112,7 @@ Subfile: [B7-contests.md](B7-contests.md)
 | Unit tests + `test_contest_sequence` HashState | landed |
 | Golden / corpus / hash re-pins | landed |
 
-Done-when met locally via scripted HashState pin. Corpus contest *distribution* remains A3 follow-up. Foul consequences (cards, free kicks, injury) are B8.
+Done-when met locally via scripted HashState pin. Corpus contest *distribution* remains A3 follow-up.
 
 ---
 
@@ -332,7 +373,7 @@ Runtime serving is interchangeable; the shell prompt and a complete generated pa
 
 ## What Wave 2 / 3 needs next
 
-1. **B8** — set pieces & referee  
+1. **B9** — AI (selection, zonal off-ball, GK, CPU brain)  
 2. Full **C1** (Wave 4) when presentation work starts — do not grow C1a  
 
 ---
@@ -341,8 +382,8 @@ Runtime serving is interchangeable; the shell prompt and a complete generated pa
 
 | Area | Location |
 |---|---|
-| Core / state | `src/core/include/core/{match_state,match_clock,ball,movement,possession,shooting,aftertouch,tackling,heading,game_events,out_of_play,hash,trace,match_*}.hpp` |
-| B1–B7 / B10 / C1a plans | `doc/implementation/B1-…`, `B5-possession.md`, `B6-shooting.md`, `B7-contests.md`, `B10-match-input.md`, `C1a-debug-match-view.md` |
+| Core / state | `src/core/include/core/{match_state,match_clock,ball,movement,possession,shooting,aftertouch,tackling,heading,set_pieces,referee,game_events,out_of_play,hash,trace,match_*}.hpp` |
+| B1–B8 / B10 / C1a plans | `doc/implementation/B1-…`, `B5-possession.md`, `B6-shooting.md`, `B7-contests.md`, `B8-set-pieces.md`, `B10-match-input.md`, `C1a-debug-match-view.md` |
 | App input / debug draw | `src/app/input/match_input_source.*`, `src/app/render/{match_renderer,pitch_view}.*` |
 | Assets | `src/assets/`, `src/tools/assetc/`, `src/app/render/{asset_source,placeholder,imported}_*` |
 | Placeholder art | `assets/placeholder/` (`gen-placeholder`) |

@@ -5,6 +5,7 @@
 #include "core/match_clock.hpp"
 #include "core/match_state.hpp"
 #include "core/possession.hpp"
+#include "core/set_pieces.hpp"
 
 #include <array>
 #include <cstdint>
@@ -248,7 +249,6 @@ inline void ApplyTackleBallContact(MatchState& s, int side, int slot) {
 inline void PlayerTackled(Entity& victim) {
     victim.player_state = static_cast<uint8_t>(PlayerState::Tackled);
     victim.player_down_timer = 20;
-    // Injury / cards → B8.
 }
 
 inline void PlayerTacklingTestFoul(MatchState& s, int side, int slot) {
@@ -279,7 +279,7 @@ inline void PlayerTacklingTestFoul(MatchState& s, int side, int slot) {
     if (tackler.tackle_state == kTackleStateNone)
         foul = true;
     else if (tackler.tackle_state == kTackleStateGood)
-        foul = false; // dangerous-play comment only — B8/commentary
+        foul = false; // dangerous-play comment only
     else if (OctantDelta(tackler.direction, victim.direction) <= 1)
         foul = true;
 
@@ -287,6 +287,7 @@ inline void PlayerTacklingTestFoul(MatchState& s, int side, int slot) {
         s.sides[static_cast<size_t>(side)].stats.fouls_conceded += 1;
         s.globals.foul_x = victim.pos.x.Whole();
         s.globals.foul_y = victim.pos.y.Whole();
+        ApplyFoulConsequences(s, side, slot, otc.controlled_slot);
     }
 }
 

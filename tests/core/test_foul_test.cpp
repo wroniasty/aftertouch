@@ -35,10 +35,12 @@ MatchState MakeFoulScene(int16_t tackle_state, int16_t victim_dir,
 
 TEST_CASE("foul when never touched ball from behind") {
     MatchState s = MakeFoulScene(kTackleStateNone, static_cast<int16_t>(Dir::N), 10);
+    SetPl(s, GameStatePl::InProgress);
     PlayerTacklingTestFoul(s, 0, 0);
     CHECK(static_cast<PlayerState>(s.players[11].player_state) == PlayerState::Tackled);
     CHECK(s.sides[0].stats.fouls_conceded == 1);
     CHECK(s.globals.foul_x == 301);
+    CHECK(GetPl(s) == GameStatePl::Stopped); // B8 restart
 }
 
 TEST_CASE("good tackle skips foul") {

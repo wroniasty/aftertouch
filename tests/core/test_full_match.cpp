@@ -9,6 +9,13 @@ using namespace at;
 TEST_CASE("full match game_length=0 ends 0-0") {
     MatchEngine eng;
     eng.Reset(0xB2000001u);
+    eng.Step(MatchInput{});
+    // B2 gate is clock/phase — keep both sides human so B9 CPU cannot score
+    // and stall the null-input scenario.
+    MatchState s = eng.State();
+    s.sides[0].control.player_number = 1;
+    s.sides[1].control.player_number = 1;
+    eng.LoadState(s);
 
     // Hard cap: kickoff + 2×(45′ + injury 50) + HT 100 + slack.
     constexpr uint32_t kCap = 20000;

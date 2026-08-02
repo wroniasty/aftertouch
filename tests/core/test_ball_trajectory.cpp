@@ -34,6 +34,6 @@ TEST_CASE("scripted kick trajectory hash is stable") {
 
     // Pinned after B3 UpdateBall. If physics change on purpose, print and update.
     // Pinned after B3 UpdateBall. If physics change on purpose, print and update.
-    constexpr uint64_t kExpected = 0xc83d1ebbc2058731ull;
+    constexpr uint64_t kExpected = 0x9deb479d6a5b2ff2ull;
     CHECK(a == kExpected);
 }

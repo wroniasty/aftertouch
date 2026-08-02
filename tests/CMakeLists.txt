@@ -51,6 +51,14 @@ add_executable(core_tests
     core/test_header_select.cpp
     core/test_header_launch.cpp
     core/test_contest_sequence.cpp
+    core/test_foul_classify.cpp
+    core/test_restart_setup.cpp
+    core/test_setpiece_aim.cpp
+    core/test_restart_resume.cpp
+    core/test_cards_injury.cpp
+    core/test_referee_machine.cpp
+    core/test_restart_cycle.cpp
+    core/test_ai_b9.cpp
 )
 target_link_libraries(core_tests PRIVATE at_core at_tracekit doctest)
 target_compile_definitions(core_tests PRIVATE

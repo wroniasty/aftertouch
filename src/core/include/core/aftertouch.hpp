@@ -61,7 +61,19 @@ inline void RefreshAftertouchInput(MatchState& s, const MatchInput& in) {
     for (int side = 0; side < 2; ++side) {
         TeamControl& tc = s.sides[static_cast<size_t>(side)].control;
         if (tc.spin_timer < 0) continue;
-        if (tc.player_number == 0) continue;
+        if (tc.player_number == 0) {
+            // B9: curl opposite to aim error using ai_ball_spin_direction.
+            int kick_dir = tc.controlled_pl_direction;
+            if (kick_dir < 0 || kick_dir > 7) kick_dir = 0;
+            int adj = 0;
+            if (tc.ai_ball_spin_direction < 0) adj = -1;
+            else if (tc.ai_ball_spin_direction > 0) adj = 1;
+            const int str = tc.ai_aftertouch_strength;
+            if (str > 0) adj *= (str > 2 ? 2 : str);
+            tc.current_allowed_direction =
+                static_cast<int16_t>((kick_dir + adj + 8) & 7);
+            continue;
+        }
         const PlayerInput& pin = (side == 0) ? in.p1 : in.p2;
         tc.current_allowed_direction = static_cast<int16_t>(pin.dir);
     }

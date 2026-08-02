@@ -4,6 +4,7 @@
 #include "core/ball.hpp"
 #include "core/match_clock.hpp"
 #include "core/movement.hpp"
+#include "core/referee.hpp"
 #include "core/shooting.hpp"
 #include "core/tackling.hpp"
 
@@ -46,7 +47,8 @@ void MatchEngine::Step(const MatchInput& in) {
     // 4b. B7: slide/header contact, foul test, recovery timers
     ProcessContestContacts(state_);
 
-    // 5. UpdateRefereeStub — B8
+    // 5. Referee card ceremony (B8)
+    UpdateReferee(state_);
 
     // 6. Stats
     UpdateStats(state_);

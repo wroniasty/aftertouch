@@ -3,7 +3,10 @@
 #include "core/match_clock.hpp"
 #include "core/match_input.hpp"
 #include "core/match_state.hpp"
+#include "core/ai.hpp"
+#include "core/goalkeeper.hpp"
 #include "core/possession.hpp"
+#include "core/set_pieces.hpp"
 #include "core/shooting.hpp"
 #include "core/tackling.hpp"
 #include "core/trig.hpp"
@@ -281,6 +284,7 @@ inline void UpdateControlledPlayer(MatchState& s, int side) {
     }
 
     if (!tc.ball_out_of_play) return; // hold slot while "in play" possession
+    if (tc.player_switch_timer > 0) return; // B9 lockout after pass arrival
 
     int best = -1;
     int32_t best_d = 0x7fffffff;
@@ -288,6 +292,8 @@ inline void UpdateControlledPlayer(MatchState& s, int side) {
         const int slot = base + i;
         Entity& e = s.players[static_cast<size_t>(slot)];
         if (!IsEligibleForControl(e, tc)) continue;
+        // B9: exclude pass target + striker so the two selections never collide.
+        if (slot == tc.pass_to_slot || slot == tc.passing_kicking_slot) continue;
         if (e.ball_distance < best_d) {
             best_d = e.ball_distance;
             best = slot;
@@ -382,13 +388,9 @@ inline void ApplySpeedAndDeltasForSlot(MatchState& s, int slot, bool controlled)
 }
 
 inline void MapInputToTeam(TeamControl& tc, const PlayerInput& in) {
-    if (tc.player_number == 0) {
-        // CPU until B9 — clear stick. Fire cleared in RefreshHumanFire.
-        tc.current_allowed_direction = -1;
-        tc.direction = -1;
-        return;
-    }
     // Stick only — fire is refreshed every tick in RefreshHumanFire.
+    // CPU stick/fire written by AI_SetControlsDirection (B9).
+    if (tc.player_number == 0) return;
     const int8_t dir = static_cast<int8_t>(in.dir);
     tc.direction = dir;
     tc.current_allowed_direction = dir;
@@ -460,18 +462,28 @@ inline void ApplyTeamControls(MatchState& s, const MatchInput& in) {
 
     TeamControl& tc = s.sides[static_cast<size_t>(side)].control;
     const PlayerInput& pin = (side == 0) ? in.p1 : in.p2;
-    MapInputToTeam(tc, pin);
 
+    UpdatePlayerBeingPassedTo(s, side);
     UpdateControlledPlayer(s, side);
+    RefineControlledSelection(s, side);
+    PickCpuRestartTaker(s, side);
 
     // B5: bands + capture before dest/speed so on-ball cut applies same tick.
     UpdatePossessionForSide(s, side);
     TickWonTheBallTimer(tc);
 
-    // B7: fire without ball → slide/header; B6 kick only with possession.
+    // B9: CPU brain writes stick/fire; human maps device stick.
+    if (tc.player_number == 0)
+        AI_SetControlsDirection(s, side);
+    else
+        MapInputToTeam(tc, pin);
+
+    // B8 restart take while Stopped; else B7/B6 open-play fork.
     bool contested = false;
     bool struck = false;
-    if (tc.player_has_ball) {
+    if (GetPl(s) != GameStatePl::InProgress) {
+        struck = ApplyRestartTake(s, side);
+    } else if (tc.player_has_ball) {
         struck = ApplyKickOrPass(s, side);
     } else {
         contested = TryBeginSlideOrHeader(s, side);
@@ -488,10 +500,14 @@ inline void ApplyTeamControls(MatchState& s, const MatchInput& in) {
     for (int i = 0; i < 11; ++i) {
         const int slot = base + i;
         const bool is_ctrl = (slot == controlled);
-        if (is_ctrl)
+        if (is_ctrl) {
             ApplyControlledDestination(s, side);
-        else
+        } else if (i == 0) {
+            // Uncontrolled keeper: rest / claim / dive (B9).
+            ApplyGoalkeeperAI(s, side);
+        } else {
             ApplyOffBallDestination(s, side, slot);
+        }
         ApplySpeedAndDeltasForSlot(s, slot, is_ctrl);
     }
 

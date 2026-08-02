@@ -19,9 +19,10 @@ TEST_CASE("fire without ball begins slide at tackling speed") {
     s.sides[0].control.ball_can_be_controlled = 1;
     s.sides[0].control.player_has_ball = 0;
     PlacePlayersAtKickoff(s);
-    // Ball far from player 9 so header proximity fails → slide.
-    s.ball.pos.x = Fix::FromInt(100);
-    s.ball.pos.y = Fix::FromInt(100);
+    // Ball far but still in play (y>=129) so OOP does not stop the match;
+    // out of header proximity → slide.
+    s.ball.pos.x = Fix::FromInt(200);
+    s.ball.pos.y = Fix::FromInt(200);
     s.ball.pos.z = Fix{};
     s.players[9].pos.x = Fix::FromInt(336);
     s.players[9].pos.y = Fix::FromInt(449);

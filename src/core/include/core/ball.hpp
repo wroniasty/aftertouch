@@ -4,6 +4,7 @@
 #include "core/match_state.hpp"
 #include "core/out_of_play.hpp"
 #include "core/profile.hpp"
+#include "core/set_pieces.hpp"
 #include "core/trig.hpp"
 
 #include <cstdint>
@@ -221,10 +222,9 @@ inline void WireOutOfPlay(MatchState& s) {
     auto result = ClassifyBallOutOfPlay(x, y, z, s.clock.last_team_played);
     if (!result.has_value()) return;
 
-    SetGameState(s, result->state);
-    SetPl(s, GameStatePl::Stopped);
     s.globals.foul_x = x;
     s.globals.foul_y = y;
+    CompleteOopRestart(s, result->state, result->is_goal);
 
     if (result->is_goal) {
         const uint8_t scorer =

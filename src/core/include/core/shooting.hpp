@@ -63,10 +63,7 @@ inline void RefreshHumanFire(MatchState& s, const MatchInput& in) {
     for (int side = 0; side < 2; ++side) {
         TeamControl& tc = s.sides[static_cast<size_t>(side)].control;
         if (tc.player_number == 0) {
-            tc.quick_fire = 0;
-            tc.normal_fire = 0;
-            tc.fire_pressed = 0;
-            tc.fire_this_frame = 0;
+            // B9: CPU brain sets fire on its control tick — do not wipe here.
             continue;
         }
         const PlayerInput& pin = (side == 0) ? in.p1 : in.p2;
@@ -233,6 +230,7 @@ inline bool ApplyKickOrPass(MatchState& s, int side) {
     tc.pass_kick_timer = kPassKickLockoutTicks;
     tc.ball_can_be_controlled = 0;
     tc.ball_out_of_play = 1;
+    tc.ball_in_play = 1;
     tc.passing_kicking_slot = static_cast<int8_t>(slot);
     tc.controlled_pl_direction = static_cast<int16_t>(dir);
     s.clock.last_team_played = static_cast<uint8_t>(side + 1);

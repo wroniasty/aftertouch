@@ -118,8 +118,10 @@ void DrawMatchHud(SDL_Renderer* r, const MatchState& state) {
     // integer scale (was ~32px on a 4× window), still readable.
     SDL_SetRenderDrawColor(r, 235, 235, 235, 255);
     char line[96];
-    SDL_snprintf(line, sizeof line, "tick %u  %u-%u", state.tick, state.score[0],
-                 state.score[1]);
+    SDL_snprintf(line, sizeof line, "tick %u  %u-%u  gs=%u pl=%u", state.tick,
+                 state.score[0], state.score[1],
+                 static_cast<unsigned>(state.globals.game_state),
+                 static_cast<unsigned>(state.globals.game_state_pl));
     SDL_RenderDebugText(r, 8.0f, 8.0f, line);
 
     const auto& tc = state.sides[0].control;
