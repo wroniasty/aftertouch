@@ -67,8 +67,9 @@ TEST_CASE("restart cycle reaches InProgress") {
 
     MatchInput in{};
     in.p1.dir = Dir::N;
+    // Hold past kFireHoldThreshold so normal_fire arms (not button-down).
     in.p1.fire = true;
-    for (int i = 0; i < 6; ++i) eng.Step(in);
+    for (int i = 0; i < 16; ++i) eng.Step(in);
 
     CHECK(GetPl(eng.State()) == GameStatePl::InProgress);
 }
@@ -76,7 +77,7 @@ TEST_CASE("restart cycle reaches InProgress") {
 TEST_CASE("scripted restart cycle hash is stable") {
     const uint64_t a = RunRestartCycle();
     CHECK(a == RunRestartCycle());
-    constexpr uint64_t kExpected = 0x9f318044c673005eull;
+    constexpr uint64_t kExpected = 0xeedb953c32696a2full;
     CAPTURE(a);
     CHECK(a == kExpected);
 }

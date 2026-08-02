@@ -30,6 +30,6 @@ TEST_CASE("determinism gate: committed hash of a scripted scenario") {
 
     // Pinned after B4 player movement. If a hashed field changes on purpose,
     // print got and update this literal.
-    constexpr uint64_t kExpected = 0xd8a826fa7b192938ull;
+    constexpr uint64_t kExpected = 0xc99651010b92ec62ull;
     CHECK(got == kExpected);
 }

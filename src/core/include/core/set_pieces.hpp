@@ -32,10 +32,17 @@ inline constexpr int16_t kFkBandLowerMaxY = 682;
 inline constexpr int16_t kMaxInjuriesPerSide = 2;
 // Match shooting.hpp launch placeholders (avoid circular include).
 inline constexpr int16_t kRestartKickSpeed     = 2800;
-inline constexpr int16_t kRestartThrowSpeed    = 1800;
+inline constexpr int16_t kRestartKickPassSpeed = 2000;
+inline constexpr int16_t kRestartThrowSpeed    = 2200;
+inline constexpr int16_t kRestartThrowPassSpeed = 1400;
 inline constexpr int32_t kRestartKickDeltaZRaw = 70000;
-inline constexpr int32_t kRestartThrowDeltaZRaw = 40000;
+inline constexpr int32_t kRestartKickPassDeltaZRaw = 0;
+inline constexpr int32_t kRestartThrowDeltaZRaw = 70000; // long throw loft
+inline constexpr int32_t kRestartThrowPassDeltaZRaw = 18000;
 inline constexpr int16_t kRestartLockoutTicks  = 25;
+// ~2 s @ 50 Hz before a teammate approaches for a tap-pass (throw-in / FK).
+inline constexpr int16_t kRestartShortfallTicks = 100;
+inline constexpr int16_t kRestartApproachUnits = 48;
 
 inline int8_t ClampDirToTurnFlags(int8_t dir, uint8_t flags) {
     if (flags == 0 || flags == 0xFF) return dir;
@@ -105,6 +112,11 @@ inline bool IsRestartTakeState(GameState gs) {
            IsGoalKickState(gs) || gs == GameState::KeeperHoldsBall;
 }
 
+// Throw-in / free kick: idle shortfall summons a facing-direction pass target.
+inline bool IsShortfallAssistState(GameState gs) {
+    return IsThrowInState(gs) || IsFreeKickState(gs);
+}
+
 inline void ClearSpinTimers(MatchState& s) {
     s.sides[0].control.spin_timer = -1;
     s.sides[1].control.spin_timer = -1;
@@ -121,6 +133,60 @@ inline void ParkBallAtSpot(MatchState& s, int16_t x, int16_t y) {
     ball.dest_y = y;
 }
 
+inline void StopAllPlayers(MatchState& s) {
+    for (int i = 0; i < kPitchPlayers; ++i) {
+        Entity& e = s.players[static_cast<size_t>(i)];
+        e.dest_x = e.pos.x.Whole();
+        e.dest_y = e.pos.y.Whole();
+        e.delta.x = Fix{};
+        e.delta.y = Fix{};
+        e.speed = 0;
+    }
+}
+
+// Select taker for the side that owns the restart (human or CPU).
+inline void PickRestartTaker(MatchState& s, int side) {
+    if (GetPl(s) == GameStatePl::InProgress) return;
+    if (!IsRestartTakeState(GetGameState(s))) return;
+    if (s.globals.last_team_played_before_break !=
+        static_cast<uint8_t>(side + 1))
+        return;
+
+    TeamControl& tc = s.sides[static_cast<size_t>(side)].control;
+    const int base = side * 11;
+    int best = base + 1;
+    if (GetGameState(s) == GameState::KeeperHoldsBall) {
+        best = base; // keeper distributes
+    } else if (GetGameState(s) == GameState::Penalty) {
+        int best_fin = -1;
+        for (int i = 1; i < 11; ++i) {
+            const int fin =
+                s.sides[static_cast<size_t>(side)].squad[static_cast<size_t>(i)]
+                    .attrs.finishing;
+            if (fin > best_fin &&
+                s.players[static_cast<size_t>(base + i)].cards >= 0) {
+                best_fin = fin;
+                best = base + i;
+            }
+        }
+    } else {
+        int32_t best_d = 0x7fffffff;
+        for (int i = 1; i < 11; ++i) {
+            const int slot = base + i;
+            Entity& e = s.players[static_cast<size_t>(slot)];
+            if (e.cards < 0) continue;
+            const int32_t dx = e.pos.x.Whole() - s.globals.foul_x;
+            const int32_t dy = e.pos.y.Whole() - s.globals.foul_y;
+            const int32_t d = dx * dx + dy * dy;
+            if (d < best_d) {
+                best_d = d;
+                best = slot;
+            }
+        }
+    }
+    tc.controlled_slot = static_cast<int8_t>(best);
+}
+
 inline void BeginRestart(MatchState& s, GameState gs, int16_t spot_x, int16_t spot_y,
                          uint8_t turn_flags, uint8_t camera_dir,
                          uint8_t taking_team) {
@@ -134,8 +200,17 @@ inline void BeginRestart(MatchState& s, GameState gs, int16_t spot_x, int16_t sp
     s.globals.break_camera_mode = kBreakCameraModeRestart;
     ParkBallAtSpot(s, spot_x, spot_y);
     ClearSpinTimers(s);
-    for (int i = 0; i < 2; ++i)
-        s.sides[static_cast<size_t>(i)].control.ball_in_play = 0;
+    StopAllPlayers(s);
+    for (int i = 0; i < 2; ++i) {
+        TeamControl& tc = s.sides[static_cast<size_t>(i)].control;
+        tc.ball_in_play = 0;
+        tc.long_pass = 0; // restart shortfall countdown (dead-ball reuse)
+    }
+    if (IsShortfallAssistState(gs) && taking_team >= 1 && taking_team <= 2) {
+        s.sides[static_cast<size_t>(taking_team - 1)].control.long_pass =
+            kRestartShortfallTicks;
+    }
+    MarkBallLoose(s);
 }
 
 inline GameState FreeKickZoneForX(int16_t x, bool top_team_fouled) {
@@ -203,8 +278,8 @@ inline void ClassifyAndBeginFoulRestart(MatchState& s, int16_t vx, int16_t vy,
 
 inline uint8_t TurnFlagsForOop(GameState gs, int16_t spot_x, int16_t spot_y) {
     if (IsThrowInState(gs)) {
-        // Face into pitch: left touch → mostly E; right → mostly W.
-        return (spot_x < kCentreSpotX) ? uint8_t{0x1C} : uint8_t{0xC1};
+        // Into-pitch arc: left touch N..S via E; right N..S via W.
+        return (spot_x < kCentreSpotX) ? uint8_t{0x1F} : uint8_t{0xF1};
     }
     if (IsCornerState(gs)) {
         return (spot_y < kCentreSpotY) ? kTurnFlagsPenLower : kTurnFlagsPenUpper;
@@ -268,6 +343,20 @@ inline void PlaceThrowInTaker(MatchState& s, int side) {
     e.delta = {};
     e.speed = 0;
     e.player_state = static_cast<uint8_t>(PlayerState::ThrowIn);
+    // Re-park every tick — keep stick aim; default face into pitch.
+    const int8_t into =
+        (bx < kCentreSpotX) ? static_cast<int8_t>(2) : static_cast<int8_t>(6);
+    int8_t face = into;
+    if (tc.current_allowed_direction >= 0 && tc.current_allowed_direction <= 7)
+        face = ClampDirToTurnFlags(
+            static_cast<int8_t>(tc.current_allowed_direction),
+            s.globals.player_turn_flags);
+    if (face < 0) face = into;
+    e.direction = face;
+    e.player_direction = face;
+    tc.direction = face;
+    tc.controlled_pl_direction = face;
+    tc.current_allowed_direction = face;
     s.globals.hide_ball = 1;
 }
 
@@ -315,6 +404,7 @@ inline void CompleteOopRestart(MatchState& s, GameState gs, bool is_goal) {
 
     const int side = static_cast<int>(taking) - 1;
     if (side < 0 || side > 1) return;
+    PickRestartTaker(s, side);
     if (IsThrowInState(gs))
         PlaceThrowInTaker(s, side);
     else
@@ -351,8 +441,77 @@ inline void ResumeOpenPlay(MatchState& s) {
     s.globals.player_turn_flags = kTurnFlagsAll;
     s.globals.hide_ball = 0;
     s.phase = MatchPhase::InPlay;
-    for (int i = 0; i < 2; ++i)
-        s.sides[static_cast<size_t>(i)].control.ball_in_play = 1;
+    for (int i = 0; i < 2; ++i) {
+        TeamControl& tc = s.sides[static_cast<size_t>(i)].control;
+        tc.ball_in_play = 1;
+        if (tc.long_pass != 0) tc.long_pass = 0;
+    }
+    MarkBallLoose(s);
+}
+
+// Throw-in / free kick: after idle timeout, park a teammate ahead of the
+// taker's face as the tap-pass target (original shortfall assist).
+inline void ApproachRestartReceiver(MatchState& s, int side) {
+    TeamControl& tc = s.sides[static_cast<size_t>(side)].control;
+    const int taker = tc.controlled_slot;
+    if (taker < 0 || taker >= kPitchPlayers) return;
+
+    int face = tc.current_allowed_direction;
+    if (face < 0 || face > 7)
+        face = s.players[static_cast<size_t>(taker)].direction;
+    face = ClampDirToTurnFlags(static_cast<int8_t>(face),
+                               s.globals.player_turn_flags);
+    if (face < 0 || face > 7) face = (s.globals.foul_x < kCentreSpotX) ? 2 : 6;
+
+    const Entity& th = s.players[static_cast<size_t>(taker)];
+    const Dest off = kDefaultDestinations[static_cast<size_t>(face)];
+    const int16_t ax = static_cast<int16_t>(
+        th.pos.x.Whole() + off.x / (1000 / kRestartApproachUnits));
+    const int16_t ay = static_cast<int16_t>(
+        th.pos.y.Whole() + off.y / (1000 / kRestartApproachUnits));
+
+    const int base = side * 11;
+    int target = tc.pass_to_slot;
+    if (target < 0 || target >= kPitchPlayers || target == taker) {
+        int32_t best_d = 0x7fffffff;
+        target = -1;
+        for (int i = 1; i < 11; ++i) {
+            const int slot = base + i;
+            if (slot == taker) continue;
+            Entity& e = s.players[static_cast<size_t>(slot)];
+            if (e.cards < 0) continue;
+            const int32_t ddx = e.pos.x.Whole() - ax;
+            const int32_t ddy = e.pos.y.Whole() - ay;
+            const int32_t d = ddx * ddx + ddy * ddy;
+            if (d < best_d) {
+                best_d = d;
+                target = slot;
+            }
+        }
+    }
+    if (target < 0) return;
+
+    Entity& recv = s.players[static_cast<size_t>(target)];
+    recv.dest_x = ax;
+    recv.dest_y = ay;
+    tc.pass_to_slot = static_cast<int8_t>(target);
+    tc.long_pass = -1; // shortfall active: keep approaching
+}
+
+inline void TickRestartShortfall(MatchState& s, int side) {
+    if (GetPl(s) == GameStatePl::InProgress) return;
+    if (!IsShortfallAssistState(GetGameState(s))) return;
+    if (s.globals.last_team_played_before_break !=
+        static_cast<uint8_t>(side + 1))
+        return;
+
+    TeamControl& tc = s.sides[static_cast<size_t>(side)].control;
+    if (tc.long_pass > 0) {
+        --tc.long_pass;
+        if (tc.long_pass == 0) ApproachRestartReceiver(s, side);
+    } else if (tc.long_pass < 0) {
+        ApproachRestartReceiver(s, side);
+    }
 }
 
 inline bool IsLastManFoul(const MatchState& s, int offending_side, int victim_slot) {
@@ -465,7 +624,9 @@ inline void ApplyFoulConsequences(MatchState& s, int offending_side, int tackler
     RollInjuryOnTackle(s, 1 - offending_side, victim_slot);
     RollCardForFoul(s, offending_side, tackler_slot, victim_slot, in_pen);
     ClassifyAndBeginFoulRestart(s, vx, vy, offending_side);
-    PlaceTakerNearSpot(s, 1 - offending_side);
+    const int take_side = 1 - offending_side;
+    PickRestartTaker(s, take_side);
+    PlaceTakerNearSpot(s, take_side);
 }
 
 // Restart take: kick or throw while Stopped. Returns true if launched.
@@ -478,9 +639,10 @@ inline bool ApplyRestartTake(MatchState& s, int side) {
     if (taking != static_cast<uint8_t>(side + 1)) return false;
 
     TeamControl& tc = s.sides[static_cast<size_t>(side)].control;
-    const bool pulse = tc.quick_fire != 0 || tc.normal_fire != 0 ||
-                       tc.fire_this_frame != 0;
-    if (!pulse) return false;
+    // Wait for tap/hold classification — do not fire on button-down.
+    const bool is_pass = tc.quick_fire != 0;
+    const bool is_kick = tc.normal_fire != 0;
+    if (!is_pass && !is_kick) return false;
     if (tc.controlled_slot < 0 || tc.controlled_slot >= kPitchPlayers) return false;
 
     Entity& kicker = s.players[static_cast<size_t>(tc.controlled_slot)];
@@ -495,14 +657,41 @@ inline bool ApplyRestartTake(MatchState& s, int side) {
     if (dir < 0 || dir > 7) dir = 0;
 
     Entity& ball = s.ball;
-    const Dest off = AimDestForDir(s, dir);
-    ball.dest_x = static_cast<int16_t>(ball.pos.x.Whole() + off.x);
-    ball.dest_y = static_cast<int16_t>(ball.pos.y.Whole() + off.y);
-    ball.direction = static_cast<int16_t>(dir);
     const bool throw_in = IsThrowInState(gs);
-    ball.speed = throw_in ? kRestartThrowSpeed : kRestartKickSpeed;
-    ball.delta.z = Fix::FromRaw(throw_in ? kRestartThrowDeltaZRaw
-                                         : kRestartKickDeltaZRaw);
+    const bool shortfall = IsShortfallAssistState(gs);
+    const int16_t bx = ball.pos.x.Whole();
+    const int16_t by = ball.pos.y.Whole();
+
+    if (shortfall && is_pass) {
+        // Tap: assisted pass to pass_to (or short kick/throw in facing dir).
+        if (tc.pass_to_slot >= 0 && tc.pass_to_slot < kPitchPlayers &&
+            tc.pass_to_slot != tc.controlled_slot) {
+            const Entity& recv =
+                s.players[static_cast<size_t>(tc.pass_to_slot)];
+            ball.dest_x = recv.pos.x.Whole();
+            ball.dest_y = recv.pos.y.Whole();
+            tc.pass_in_progress = 1;
+        } else {
+            const Dest off = kDefaultDestinations[static_cast<size_t>(dir)];
+            ball.dest_x = static_cast<int16_t>(bx + off.x / 2);
+            ball.dest_y = static_cast<int16_t>(by + off.y / 2);
+            tc.pass_to_slot = -1;
+            tc.pass_in_progress = 0;
+        }
+        ball.speed = throw_in ? kRestartThrowPassSpeed : kRestartKickPassSpeed;
+        ball.delta.z = Fix::FromRaw(throw_in ? kRestartThrowPassDeltaZRaw
+                                             : kRestartKickPassDeltaZRaw);
+    } else {
+        const Dest off = AimDestForDir(s, dir);
+        ball.dest_x = static_cast<int16_t>(bx + off.x);
+        ball.dest_y = static_cast<int16_t>(by + off.y);
+        tc.pass_to_slot = -1;
+        tc.pass_in_progress = 0;
+        ball.speed = throw_in ? kRestartThrowSpeed : kRestartKickSpeed;
+        ball.delta.z = Fix::FromRaw(throw_in ? kRestartThrowDeltaZRaw
+                                             : kRestartKickDeltaZRaw);
+    }
+    ball.direction = static_cast<int16_t>(dir);
     ball.pos.z = Fix{};
 
     {
@@ -515,6 +704,7 @@ inline bool ApplyRestartTake(MatchState& s, int side) {
     tc.quick_fire = 0;
     tc.normal_fire = 0;
     tc.player_has_ball = 0;
+    tc.long_pass = 0;
     tc.pass_kick_timer = kRestartLockoutTicks;
     tc.ball_can_be_controlled = 0;
     s.clock.last_team_played = static_cast<uint8_t>(side + 1);

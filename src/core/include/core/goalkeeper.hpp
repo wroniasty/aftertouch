@@ -143,7 +143,14 @@ inline void ApplyGoalkeeperAI(MatchState& s, int side) {
         }
     }
 
-    // Rest: narrow the angle.
+    // Rest: narrow the angle — only while the ball is live.
+    if (GetPl(s) != GameStatePl::InProgress) {
+        gk.dest_x = gk.pos.x.Whole();
+        gk.dest_y = gk.pos.y.Whole();
+        gk.delta = {};
+        gk.speed = 0;
+        return;
+    }
     gk.dest_x = static_cast<int16_t>(kCentreSpotX + (bx - kCentreSpotX) / 2);
     gk.dest_y = static_cast<int16_t>(by + (goal_y - by) / 2);
     gk.speed = kGkPositionSpeed[static_cast<size_t>(sk)];

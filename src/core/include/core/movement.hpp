@@ -125,15 +125,28 @@ inline Dest ClampOffBallDest(Dest d) {
     return d;
 }
 
-inline Dest TacticsDestForCell(uint8_t cell, int side /*0 home/top, 1 away/bot*/) {
+inline Dest TacticsDestForCell(uint8_t cell, bool defend_top) {
     uint8_t qx = static_cast<uint8_t>((cell >> 4) & 0x0Fu);
     uint8_t qy = static_cast<uint8_t>(cell & 0x0Fu);
     if (qx > 14) qx = 14;
     if (qy > 15) qy = 15;
     Dest d{kPlayerXQuadrantCoords[qx], kPlayerYQuadrantCoords[qy]};
-    // Approach nudge: top −4, bottom +4.
-    d.x = static_cast<int16_t>(d.x + (side == 0 ? -4 : 4));
+    // Approach nudge: defending-top −4, defending-bottom +4.
+    d.x = static_cast<int16_t>(d.x + (defend_top ? -4 : 4));
     return ClampOffBallDest(d);
+}
+
+// Legacy overload: 0 = defend top, 1 = defend bottom.
+inline Dest TacticsDestForCell(uint8_t cell, int side) {
+    return TacticsDestForCell(cell, side == 0);
+}
+
+// Which end this side defends. Prefer team_playing_up; if unset, home=top.
+inline bool SideDefendsTop(const MatchState& s, int side) {
+    const uint8_t up = s.globals.team_playing_up;
+    if (up == 1 || up == 2)
+        return up == static_cast<uint8_t>(side + 1);
+    return side == 0;
 }
 
 inline Dest OffBallDestination(const MatchState& s, int side, int ordinal_1_based) {
@@ -141,13 +154,15 @@ inline Dest OffBallDestination(const MatchState& s, int side, int ordinal_1_base
     const int16_t by = s.ball.pos.y.Whole();
     int q = BallQuadrantIndex(bx, by);
     uint8_t cell = 0;
+    // team_playing_up defends the top goal / attacks down (SIMULATION.md).
+    const bool defend_top = SideDefendsTop(s, side);
 
     if (ordinal_1_based == 1) {
         // Keeper: linear map into own box (MOVEMENT §7).
         const int32_t ball_rel_x = static_cast<int32_t>(bx) - 81;
         int16_t gx = static_cast<int16_t>(285 + ball_rel_x * 103 / 510);
         int16_t gy;
-        if (side == 0) {
+        if (defend_top) {
             gy = static_cast<int16_t>(135 + (static_cast<int32_t>(by) - 129) * 26 / 641);
             if (gy < 135) gy = 135;
             if (gy > 161) gy = 161;
@@ -166,16 +181,16 @@ inline Dest OffBallDestination(const MatchState& s, int side, int ordinal_1_base
     if (role < 0) role = 0;
     if (role >= kMatchTacticRoles) role = kMatchTacticRoles - 1;
 
-    if (side == 1) {
+    const auto& row =
+        s.sides[static_cast<size_t>(side)].tactics.cells[static_cast<size_t>(role)];
+    if (!defend_top) {
         q = 34 - q;
-        const auto& row = s.sides[1].tactics.cells[static_cast<size_t>(role)];
         cell = row[static_cast<size_t>(q)];
         cell = static_cast<uint8_t>(0xEF - cell);
     } else {
-        const auto& row = s.sides[0].tactics.cells[static_cast<size_t>(role)];
         cell = row[static_cast<size_t>(q)];
     }
-    return TacticsDestForCell(cell, side);
+    return TacticsDestForCell(cell, defend_top);
 }
 
 inline uint8_t BoundaryMask(int16_t x, int16_t y) {
@@ -315,6 +330,24 @@ inline void ApplyControlledDestination(MatchState& s, int side) {
 
     int8_t dir = static_cast<int8_t>(tc.current_allowed_direction);
 
+    // Restart takes: stick aims only — no translation until fire (B8 / C1a play).
+    // Neutral stick keeps the last facing (throw-in default into pitch).
+    if (IsRestartTakeState(GetGameState(s))) {
+        if (dir >= 0 && dir <= 7) {
+            dir = ApplyTurnFlags(dir, s.globals.player_turn_flags);
+            if (dir >= 0 && dir <= 7) {
+                e.direction = dir;
+                e.player_direction = dir;
+                tc.direction = dir;
+                tc.controlled_pl_direction = dir;
+                tc.current_allowed_direction = dir;
+            }
+        }
+        StopEntity(e);
+        e.speed = 0;
+        return;
+    }
+
     if (GetPl(s) != GameStatePl::InProgress) {
         dir = ApplyTurnFlags(dir, s.globals.player_turn_flags);
         tc.current_allowed_direction = dir;
@@ -339,6 +372,19 @@ inline void ApplyControlledDestination(MatchState& s, int side) {
 inline void ApplyOffBallDestination(MatchState& s, int side, int slot) {
     Entity& e = s.players[static_cast<size_t>(slot)];
     if (IsSpecialMovementState(e)) return;
+    {
+        const TeamControl& tc = s.sides[static_cast<size_t>(side)].control;
+        // Restart shortfall: keep walking toward the approach stand.
+        if (tc.long_pass < 0 && slot == tc.pass_to_slot &&
+            IsShortfallAssistState(GetGameState(s)))
+            return;
+        // AI.md §2.2: pass target waits to receive.
+        if (slot == tc.pass_to_slot) {
+            StopEntity(e);
+            e.speed = 0;
+            return;
+        }
+    }
     const Dest d = OffBallDestination(s, side, e.player_ordinal);
     e.dest_x = d.x;
     e.dest_y = d.y;
@@ -410,6 +456,7 @@ inline void PlacePlayersAtKickoff(MatchState& s) {
         // Ball is capturable until a kick lockout (B6) clears this.
         s.sides[static_cast<size_t>(side)].control.ball_can_be_controlled = 1;
 
+        const bool defend_top = SideDefendsTop(s, side);
         for (int i = 0; i < 11; ++i) {
             const int slot = side * 11 + i;
             Entity& e = s.players[static_cast<size_t>(slot)];
@@ -424,13 +471,14 @@ inline void PlacePlayersAtKickoff(MatchState& s) {
             e.dest_y = d.y;
             e.delta = {};
             e.speed = 0;
-            e.direction = (side == 0) ? 4 : 0; // face opponent's half
+            e.direction = defend_top ? 4 : 0; // face attack direction
             e.player_direction = e.direction;
             // B12: start XI marked as having played.
             s.sides[static_cast<size_t>(side)].squad[static_cast<size_t>(i)]
                 .half_played = 1;
         }
     }
+    MarkBallLoose(s);
 }
 
 inline void MoveSprite(Entity& e) {
@@ -466,9 +514,9 @@ inline void ApplyTeamControls(MatchState& s, const MatchInput& in) {
     TeamControl& tc = s.sides[static_cast<size_t>(side)].control;
     const PlayerInput& pin = (side == 0) ? in.p1 : in.p2;
 
-    UpdatePlayerBeingPassedTo(s, side);
     UpdateControlledPlayer(s, side);
     RefineControlledSelection(s, side);
+    // Human + CPU: pick taker and park at spot while dead-ball.
     PickCpuRestartTaker(s, side);
 
     // B5: bands + capture before dest/speed so on-ball cut applies same tick.
@@ -480,6 +528,16 @@ inline void ApplyTeamControls(MatchState& s, const MatchInput& in) {
         AI_SetControlsDirection(s, side);
     else
         MapInputToTeam(tc, pin);
+
+    // Pass candidate after stick so facing cone matches this tick's aim.
+    UpdatePlayerBeingPassedTo(s, side);
+    // Wall-clock shortfall: tick the taking side every frame, not only on its turn.
+    if (GetPl(s) != GameStatePl::InProgress &&
+        IsShortfallAssistState(GetGameState(s))) {
+        const uint8_t take = s.globals.last_team_played_before_break;
+        if (take >= 1 && take <= 2)
+            TickRestartShortfall(s, static_cast<int>(take) - 1);
+    }
 
     // B8 restart take while Stopped; else B7/B6 open-play fork.
     bool contested = false;

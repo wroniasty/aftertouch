@@ -258,7 +258,7 @@ struct TeamControl {
     int16_t spin_timer = -1;           // -1 = aftertouch inactive
     int16_t left_spin = 0;
     int16_t right_spin = 0;
-    int16_t long_pass = 0;
+    int16_t long_pass = 0; // also: FK/throw shortfall ticks (>0) / active (-1)
     int16_t long_spin_pass = 0;
     int16_t pass_in_progress = 0;
 
@@ -553,6 +553,13 @@ struct MatchState {
 
 static_assert(std::is_trivially_copyable_v<MatchState>);
 static_assert(std::has_unique_object_representations_v<MatchState>);
+
+// Raise auto-select gate for both sides (AI.md §2.1 / MOVEMENT.md §6).
+// Cleared per-side while that side holds the ball (possession.hpp).
+inline void MarkBallLoose(MatchState& s) {
+    for (int i = 0; i < 2; ++i)
+        s.sides[static_cast<size_t>(i)].control.ball_out_of_play = 1;
+}
 
 inline void AppendChronicle(MatchState& s, MatchEventKind kind, uint8_t side,
                             uint8_t squad_index) {

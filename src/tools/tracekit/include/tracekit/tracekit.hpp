@@ -405,4 +405,243 @@ inline Scenario ShotCurlScenario(uint32_t ticks = 80) {
     return s;
 }
 
+// ---------------------------------------------------------------------------
+// Sparse agent-readable transcript (ATTR / .atin → text)
+// ---------------------------------------------------------------------------
+
+inline const char* DirToken(Dir d) {
+    switch (d) {
+    case Dir::None: return "-";
+    case Dir::N:    return "N";
+    case Dir::NE:   return "NE";
+    case Dir::E:    return "E";
+    case Dir::SE:   return "SE";
+    case Dir::S:    return "S";
+    case Dir::SW:   return "SW";
+    case Dir::W:    return "W";
+    case Dir::NW:   return "NW";
+    }
+    return "?";
+}
+
+inline void AppendPlayerInput(std::string& out, const PlayerInput& p) {
+    out += DirToken(p.dir);
+    if (p.fire) out += "+fire";
+}
+
+inline const char* PhaseToken(MatchPhase p) {
+    switch (p) {
+    case MatchPhase::KickOff:  return "KickOff";
+    case MatchPhase::InPlay:   return "InPlay";
+    case MatchPhase::Goal:     return "Goal";
+    case MatchPhase::HalfTime: return "HalfTime";
+    case MatchPhase::FullTime: return "FullTime";
+    }
+    return "?";
+}
+
+inline const char* GameStateToken(uint8_t gs) {
+    switch (static_cast<GameState>(gs)) {
+    case GameState::PlayersToInitialPositions: return "SETUP";
+    case GameState::GoalOutLeft:               return "GK-L";
+    case GameState::GoalOutRight:              return "GK-R";
+    case GameState::KeeperHoldsBall:           return "HOLD";
+    case GameState::CornerLeft:                return "CR-L";
+    case GameState::CornerRight:               return "CR-R";
+    case GameState::FreeKickLeft1:             return "FK-L1";
+    case GameState::FreeKickLeft2:             return "FK-L2";
+    case GameState::FreeKickLeft3:             return "FK-L3";
+    case GameState::FreeKickCentre:            return "FK-C";
+    case GameState::FreeKickRight1:            return "FK-R1";
+    case GameState::FreeKickRight2:            return "FK-R2";
+    case GameState::FreeKickRight3:            return "FK-R3";
+    case GameState::Foul:                      return "FOUL";
+    case GameState::Penalty:                   return "PEN";
+    case GameState::ThrowInForwardRight:       return "TI-FR";
+    case GameState::ThrowInCentreRight:        return "TI-CR";
+    case GameState::ThrowInBackRight:          return "TI-BR";
+    case GameState::ThrowInForwardLeft:        return "TI-FL";
+    case GameState::ThrowInCentreLeft:         return "TI-CL";
+    case GameState::ThrowInBackLeft:           return "TI-BL";
+    case GameState::StartingGame:              return "KO";
+    case GameState::CameraGoingToShowers:      return "SHOWER";
+    case GameState::GoingToHalfTime:           return "toHT";
+    case GameState::PlayersGoingToShower:      return "SHOWER";
+    case GameState::ResultOnHalfTime:          return "HT-RES";
+    case GameState::ResultAfterGame:           return "FT-RES";
+    case GameState::FirstExtraStarting:        return "ET";
+    case GameState::FirstExtraEnded:           return "ET-END";
+    case GameState::FirstHalfEnded:            return "HT";
+    case GameState::GameEnded:                 return "FT";
+    case GameState::Penalties:                 return "PENS";
+    }
+    return "?";
+}
+
+inline const char* EventKindToken(uint8_t kind) {
+    switch (static_cast<MatchEventKind>(kind)) {
+    case MatchEventKind::None:   return "None";
+    case MatchEventKind::Goal:   return "Goal";
+    case MatchEventKind::Yellow: return "Yellow";
+    case MatchEventKind::Red:    return "Red";
+    case MatchEventKind::Injury: return "Injury";
+    case MatchEventKind::Corner: return "Corner";
+    }
+    return "?";
+}
+
+inline void FormatCtrl(std::string& out, const MatchState& s, int side) {
+    const TeamControl& tc = s.sides[static_cast<size_t>(side)].control;
+    const int8_t slot = tc.controlled_slot;
+    out += (side == 0) ? "Hctrl=" : "Actrl=";
+    if (slot < 0 || slot >= kPitchPlayers) {
+        out += "none";
+        return;
+    }
+    const Entity& e = s.players[static_cast<size_t>(slot)];
+    char buf[64];
+    std::snprintf(buf, sizeof buf, "slot%d@(%d,%d)", static_cast<int>(slot),
+                  e.pos.x.Whole(), e.pos.y.Whole());
+    out += buf;
+}
+
+// All 11 pitch players for a side: slot@(x,y)[*][B]  * = controlled, B = has ball.
+inline void FormatSidePositions(std::string& out, const MatchState& s, int side) {
+    const TeamControl& tc = s.sides[static_cast<size_t>(side)].control;
+    out += (side == 0) ? "Hpos:" : "Apos:";
+    const int base = side * 11;
+    for (int i = 0; i < 11; ++i) {
+        const int slot = base + i;
+        const Entity& e = s.players[static_cast<size_t>(slot)];
+        char buf[48];
+        std::snprintf(buf, sizeof buf, " %d@(%d,%d)", slot, e.pos.x.Whole(),
+                      e.pos.y.Whole());
+        out += buf;
+        if (slot == tc.controlled_slot) out += '*';
+        if (tc.player_has_ball && slot == tc.controlled_slot) out += 'B';
+    }
+}
+
+inline std::string FormatTickLine(const MatchState& s, const MatchInput& in) {
+    char head[160];
+    std::snprintf(head, sizeof head,
+                  "t=%u phase=%s clock=%d'%02d score=%u-%u gs=%s ball=(%d,%d,%d)",
+                  s.tick, PhaseToken(s.phase),
+                  static_cast<int>(s.clock.displayed_minute),
+                  (s.clock.game_seconds < 0)
+                      ? 0
+                      : (s.clock.game_seconds > 59 ? 59
+                                                   : static_cast<int>(s.clock.game_seconds)),
+                  s.score[0], s.score[1], GameStateToken(s.globals.game_state),
+                  s.ball.pos.x.Whole(), s.ball.pos.y.Whole(),
+                  s.ball.pos.z.Whole());
+    std::string line = head;
+    line += "\n  ";
+    FormatCtrl(line, s, 0);
+    line += " ";
+    FormatCtrl(line, s, 1);
+    line += "\n  ";
+    FormatSidePositions(line, s, 0);
+    line += "\n  ";
+    FormatSidePositions(line, s, 1);
+    line += "\n  in: P1=";
+    AppendPlayerInput(line, in.p1);
+    line += " P2=";
+    AppendPlayerInput(line, in.p2);
+    return line;
+}
+
+struct TranscriptOptions {
+    uint32_t heartbeat_every = 25; // 0 = only on change
+};
+
+inline bool InputsEqual(const MatchInput& a, const MatchInput& b) {
+    return a.p1.dir == b.p1.dir && a.p1.fire == b.p1.fire &&
+           a.p2.dir == b.p2.dir && a.p2.fire == b.p2.fire;
+}
+
+// Walk ATTR bytes → sparse text. Returns false on bad ATTR.
+inline bool WriteSparseTranscript(std::span<const uint8_t> attr, std::string& out,
+                                  TranscriptOptions opt = {}) {
+    trace::Header hdr;
+    if (!trace::DeserializeHeader(attr, hdr)) return false;
+    const size_t need = trace::kHeaderSize +
+                        static_cast<size_t>(hdr.record_count) * trace::kRecordSize;
+    if (attr.size() < need) return false;
+
+    char header[160];
+    std::snprintf(header, sizeof header,
+                  "# ATTR transcript  seed=0x%08X  profile=%u  hz=%u  ticks=%u\n"
+                  "# sparse: input/ctrl/Hpos/Apos/score/gs/phase/chronicle + heartbeat\n"
+                  "# Hpos/Apos: slot@(x,y)  *=controlled  B=has ball\n",
+                  hdr.seed, static_cast<unsigned>(hdr.profile), hdr.tick_hz,
+                  hdr.record_count);
+    out = header;
+
+    MatchState prev{};
+    MatchInput prev_in{};
+    bool have_prev = false;
+    uint8_t prev_chron = 0;
+
+    for (uint32_t i = 0; i < hdr.record_count; ++i) {
+        const size_t off =
+            trace::kHeaderSize + static_cast<size_t>(i) * trace::kRecordSize;
+        MatchState st{};
+        MatchInput in{};
+        if (!trace::DeserializeRecord(attr.subspan(off, trace::kRecordSize), st,
+                                      in))
+            return false;
+
+        bool interesting = !have_prev;
+        if (have_prev) {
+            if (!InputsEqual(in, prev_in)) interesting = true;
+            if (st.sides[0].control.controlled_slot !=
+                    prev.sides[0].control.controlled_slot ||
+                st.sides[1].control.controlled_slot !=
+                    prev.sides[1].control.controlled_slot)
+                interesting = true;
+            if (st.score[0] != prev.score[0] || st.score[1] != prev.score[1])
+                interesting = true;
+            if (st.globals.game_state != prev.globals.game_state ||
+                st.phase != prev.phase)
+                interesting = true;
+            if (st.chronicle.count != prev_chron) interesting = true;
+            if (opt.heartbeat_every > 0 &&
+                (st.tick % opt.heartbeat_every) == 0)
+                interesting = true;
+        }
+
+        if (interesting) {
+            out += FormatTickLine(st, in);
+            if (st.chronicle.count > prev_chron) {
+                for (uint8_t e = prev_chron; e < st.chronicle.count; ++e) {
+                    const MatchEvent& ev =
+                        st.chronicle.events[static_cast<size_t>(e)];
+                    char eb[96];
+                    std::snprintf(eb, sizeof eb,
+                                  "\n  event: %s side=%u squad=%u min=%u",
+                                  EventKindToken(ev.kind), ev.side,
+                                  ev.squad_index, ev.minute);
+                    out += eb;
+                }
+            }
+            out += '\n';
+        }
+
+        prev = st;
+        prev_in = in;
+        prev_chron = st.chronicle.count;
+        have_prev = true;
+    }
+    return true;
+}
+
+// Generate ATTR from scenario inputs, then format.
+inline bool WriteSparseTranscript(const Scenario& scenario, std::string& out,
+                                  TranscriptOptions opt = {}) {
+    std::vector<uint8_t> attr;
+    if (!Generate(scenario, attr)) return false;
+    return WriteSparseTranscript(std::span<const uint8_t>(attr), out, opt);
+}
+
 } // namespace at::tracekit

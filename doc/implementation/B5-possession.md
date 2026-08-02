@@ -62,10 +62,16 @@ flag.
 
 ### 2.3 Capture / lose
 
+Before bands: `TryCompletePassArrival` — if `pass_in_progress` and the ball is
+very-close (ground) to `pass_to_slot`, assign `controlled_slot = pass_to`, clear
+`pass_to_slot`, arm `player_switch_timer = 25` (AI.md §2.3).
+
 Gain when controlled is `pl_very_close`, InProgress, `ball_can_be_controlled`,
-`pass_kick_timer == 0`, not special state. Lose when leaving `pl_close` (hysteresis
-so brief drift does not flicker). Clear `player_has_ball`; set `ball_out_of_play`
-on lose so B4 auto-select can re-evaluate; clear it while stably holding.
+`pass_kick_timer == 0`, not special state. Completing a pass zeros ball planar
+speed/delta so it sits at the receiver's feet until stick input. Lose when
+leaving `pl_close` (hysteresis so brief drift does not flicker). Clear
+`player_has_ball`; set `ball_out_of_play` on lose so B4 auto-select can
+re-evaluate; clear it while stably holding.
 
 ### 2.4 Dribble
 

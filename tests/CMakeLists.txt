@@ -58,10 +58,16 @@ add_executable(core_tests
     core/test_cards_injury.cpp
     core/test_referee_machine.cpp
     core/test_restart_cycle.cpp
+    core/test_restart_aim_freeze.cpp
+    core/test_control_switch.cpp
+    core/test_kickoff_halves.cpp
+    core/test_pass_facing_throw.cpp
+    core/test_pass_arrival.cpp
     core/test_ai_b9.cpp
     core/test_performance_rating.cpp
+    core/test_transcript.cpp
 )
-target_link_libraries(core_tests PRIVATE at_core at_tracekit doctest)
+target_link_libraries(core_tests PRIVATE at_core at_data at_tracekit doctest)
 target_compile_definitions(core_tests PRIVATE
     AT_FIXED_CHECKED
     AT_GOLDEN_DIR="${CMAKE_SOURCE_DIR}/tests/golden"

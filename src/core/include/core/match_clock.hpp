@@ -124,6 +124,7 @@ inline void StartSecondHalf(MatchState& s) {
     // displayed_minute stays at 45
     PlaceBallAtCentre(s);
     s.phase = MatchPhase::InPlay;
+    MarkBallLoose(s);
 }
 
 inline void EndFirstHalf(MatchState& s) {
@@ -163,6 +164,7 @@ inline void UpdateTime(MatchState& s) {
                     SetPl(s, GameStatePl::InProgress);
                     SetGameState(s, GameState::StartingGame);
                     s.phase = MatchPhase::InPlay;
+                    MarkBallLoose(s);
                 }
             }
         }

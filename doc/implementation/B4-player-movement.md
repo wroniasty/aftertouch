@@ -125,8 +125,10 @@ Wall: no SDL/I/O/float/clock in `src/core/`.
 
 ---
 
-## 6. Open questions
+## 6. Follow-ups
 
-- Exact `ball_out_of_play` write sites for auto-switch — confirm vs traces.  
+- **`MarkBallLoose`:** both sides’ `ball_out_of_play = 1` on kickoff/open-play
+  resume, second half, restart resume, and any open-play strike. Cleared while a
+  side holds the ball (possession). Unlocks auto-select for humans.
 - Idle face-ball rule fidelity for non-controlled players.  
 - Sub-quadrant `×5/15` drift — deferred polish.

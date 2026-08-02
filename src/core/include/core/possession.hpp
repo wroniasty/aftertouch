@@ -115,6 +115,37 @@ inline bool CanCapture(const MatchState& s, const TeamControl& tc, int slot) {
     return true;
 }
 
+// AI.md §2.3: when the ball reaches the pass target, hand control over and
+// arm the switch lockout. Does not clear pass_in_progress (capture credits).
+inline constexpr int16_t kPassArrivalSwitchTicks = 25;
+
+inline bool TryCompletePassArrival(MatchState& s, int side) {
+    TeamControl& tc = s.sides[static_cast<size_t>(side)].control;
+    if (GetPl(s) != GameStatePl::InProgress) return false;
+    if (!tc.pass_in_progress) return false;
+    if (tc.pass_to_slot < 0 || tc.pass_to_slot >= kPitchPlayers) return false;
+
+    Entity& recv = s.players[static_cast<size_t>(tc.pass_to_slot)];
+    if (PossessionSpecialState(recv)) return false;
+    recv.ball_distance = PossessionBallDistSq(recv, s.ball);
+    if (recv.ball_distance > kDistVeryCloseSq) return false;
+    // Ground pass arrival — ignore lofted balls still in the air.
+    if (s.ball.pos.z.Whole() > kBallZBand4) return false;
+
+    const int outgoing = tc.controlled_slot;
+    if (outgoing >= 0 && outgoing < kPitchPlayers && outgoing != tc.pass_to_slot) {
+        Entity& out = s.players[static_cast<size_t>(outgoing)];
+        out.dest_x = out.pos.x.Whole();
+        out.dest_y = out.pos.y.Whole();
+        out.delta = {};
+    }
+
+    tc.controlled_slot = tc.pass_to_slot;
+    tc.pass_to_slot = -1;
+    tc.player_switch_timer = kPassArrivalSwitchTicks;
+    return true;
+}
+
 inline void UpdatePossession(MatchState& s, int side) {
     TeamControl& tc = s.sides[static_cast<size_t>(side)].control;
     TickPassKickLockout(tc);
@@ -132,13 +163,23 @@ inline void UpdatePossession(MatchState& s, int side) {
     }
 
     if (CanCapture(s, tc, controlled) && tc.pl_very_close_to_ball) {
+        const bool completing_pass = tc.pass_in_progress != 0;
         // Pass completion: credit the kicker if a pass was in flight.
-        if (tc.pass_in_progress && tc.passing_kicking_slot >= 0 &&
+        if (completing_pass && tc.passing_kicking_slot >= 0 &&
             tc.passing_kicking_slot != controlled) {
             const int ksq = SquadIndexFromPitchSlot(tc.passing_kicking_slot);
             if (PlayerMatchStats* st = MatchStatsFor(s, side, ksq))
                 BumpU16(st->passes_completed);
+        }
+        if (completing_pass) {
             tc.pass_in_progress = 0;
+            // Sit at the receiver's feet until stick input (then aim-ahead).
+            Entity& ball = s.ball;
+            ball.speed = 0;
+            ball.delta.x = Fix{};
+            ball.delta.y = Fix{};
+            ball.dest_x = ball.pos.x.Whole();
+            ball.dest_y = ball.pos.y.Whole();
         }
         tc.player_has_ball = 1;
         tc.ball_out_of_play = 0;
@@ -227,6 +268,7 @@ inline void GiveBallForTest(MatchState& s, int side, int slot) {
 
 // Bands + capture/release. Call ApplyDribble after the carrier's speed is set.
 inline void UpdatePossessionForSide(MatchState& s, int side) {
+    TryCompletePassArrival(s, side);
     UpdateProximityBands(s, side);
     UpdatePossession(s, side);
 }

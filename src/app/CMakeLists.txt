@@ -11,12 +11,14 @@ add_executable(aftertouch
 )
 
 target_include_directories(aftertouch PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(aftertouch PRIVATE at_core at_asset_source imgui SDL3::SDL3)
+target_link_libraries(aftertouch PRIVATE
+    at_core at_data at_tracekit at_asset_source imgui SDL3::SDL3)
 
 # Asset path for development builds. Replace with SDL_GetBasePath()
 # and a real install layout when you package anything.
 target_compile_definitions(aftertouch PRIVATE
-    AT_ASSET_DIR="${CMAKE_SOURCE_DIR}/assets")
+    AT_ASSET_DIR="${CMAKE_SOURCE_DIR}/assets"
+    AT_TRACES_DIR="${CMAKE_SOURCE_DIR}/traces")
 
 # Windows: put SDL3.dll next to the executable.
 if(WIN32)

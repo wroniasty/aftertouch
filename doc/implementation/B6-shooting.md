@@ -55,7 +55,9 @@ one-tick `quick_fire`. No hold-scaled power.
 Gated on InProgress, direction, `pl_very_close || pl_close`. Sets dest, base
 speed/`delta_z`, attr bonus (shots), clears `player_has_ball`, arms lockout,
 opens spin. **Pass = ground** (`delta_z = 0`); **shot = lofted** base arc.
-Pass aims nearest teammate in ±1 octant cone else facing.
+Pass prefers current `pass_to` if still in facing cone and within Passing-scaled
+max range (~70 + 8×Passing); else nearest cone teammate in range; else facing
+ground kick (`pass_to = -1`). Pass speed uses `kBallSpeedPassingIncrease[Passing]`.
 
 ### 2.3 Aftertouch
 

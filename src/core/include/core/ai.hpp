@@ -14,7 +14,8 @@
 
 namespace at {
 
-inline constexpr int16_t kPlayerSwitchTimerTicks = 25;
+// Alias of possession.hpp kPassArrivalSwitchTicks (AI.md §2.3).
+inline constexpr int16_t kPlayerSwitchTimerTicks = kPassArrivalSwitchTicks;
 inline constexpr int32_t kShootMaxDistSq         = 28800;
 inline constexpr int32_t kShootMidDistSq         = 12800;
 inline constexpr int32_t kShootCloseDistSq       = 3200;
@@ -65,31 +66,57 @@ inline bool IsEligibleAi(const Entity& e, const TeamControl& tc, int slot,
     return true;
 }
 
+inline int FindPassConeTeammate(MatchState& s, int side, int controlled, int face);
+
 inline void UpdatePlayerBeingPassedTo(MatchState& s, int side) {
     TeamControl& tc = s.sides[static_cast<size_t>(side)].control;
     if (tc.player_switch_timer > 0) {
         --tc.player_switch_timer;
         return;
     }
-    // SWOS: only while ballInPlay. Drive from pl + flag (flag set on resume/kick).
-    if (GetPl(s) != GameStatePl::InProgress && !tc.ball_in_play) return;
+    // Open play: ballInPlay. Throw-in / free kick: pass assist while aiming.
+    const bool restart_pass_assist =
+        GetPl(s) != GameStatePl::InProgress &&
+        IsShortfallAssistState(GetGameState(s)) &&
+        s.globals.last_team_played_before_break ==
+            static_cast<uint8_t>(side + 1);
+    if (GetPl(s) != GameStatePl::InProgress && !tc.ball_in_play &&
+        !restart_pass_assist)
+        return;
+    // Leave an in-flight pass target alone (AI.md §2.2).
+    if (tc.pass_in_progress && tc.pass_to_slot >= 0) return;
+    // Shortfall receiver stays sticky once summoned.
+    if (tc.long_pass < 0 && tc.pass_to_slot >= 0) return;
 
     const int base = side * 11;
     const int controlled = tc.controlled_slot;
     const int kicking = tc.passing_kicking_slot;
 
-    int best = -1;
-    int32_t best_d = 0x7fffffff;
     for (int i = 0; i < 11; ++i) {
-        const int slot = base + i;
-        Entity& e = s.players[static_cast<size_t>(slot)];
+        Entity& e = s.players[static_cast<size_t>(base + i)];
         e.ball_distance =
             SquaredXY(e.pos.x.Whole(), e.pos.y.Whole(), s.ball.pos.x.Whole(),
                       s.ball.pos.y.Whole());
-        if (!IsEligibleAi(e, tc, slot, controlled, kicking)) continue;
-        if (e.ball_distance < best_d) {
-            best_d = e.ball_distance;
-            best = slot;
+    }
+
+    int face = tc.current_allowed_direction;
+    if ((face < 0 || face > 7) && controlled >= 0 && controlled < kPitchPlayers)
+        face = s.players[static_cast<size_t>(controlled)].direction;
+
+    int best = -1;
+    if (face >= 0 && face <= 7 && controlled >= 0 && controlled < kPitchPlayers)
+        best = FindPassConeTeammate(s, side, controlled, face);
+
+    if (best < 0) {
+        int32_t best_d = 0x7fffffff;
+        for (int i = 0; i < 11; ++i) {
+            const int slot = base + i;
+            Entity& e = s.players[static_cast<size_t>(slot)];
+            if (!IsEligibleAi(e, tc, slot, controlled, kicking)) continue;
+            if (e.ball_distance < best_d) {
+                best_d = e.ball_distance;
+                best = slot;
+            }
         }
     }
     tc.pass_to_slot = static_cast<int8_t>(best);
@@ -127,55 +154,28 @@ inline void RefineControlledSelection(MatchState& s, int side) {
     tc.controlled_slot = static_cast<int8_t>(best);
 }
 
+// Selection + park at spot (human + CPU). Throw-ins keep their offset pose.
 inline void PickCpuRestartTaker(MatchState& s, int side) {
+    PickRestartTaker(s, side);
     if (GetPl(s) == GameStatePl::InProgress) return;
     if (!IsRestartTakeState(GetGameState(s))) return;
     if (s.globals.last_team_played_before_break !=
         static_cast<uint8_t>(side + 1))
         return;
-
-    TeamControl& tc = s.sides[static_cast<size_t>(side)].control;
-    if (tc.player_number != 0) return;
-
-    const int base = side * 11;
-    int best = base + 1;
-    if (GetGameState(s) == GameState::KeeperHoldsBall) {
-        best = base; // keeper distributes
-    } else if (GetGameState(s) == GameState::Penalty) {
-        int best_fin = -1;
-        for (int i = 1; i < 11; ++i) {
-            const int fin =
-                s.sides[static_cast<size_t>(side)].squad[static_cast<size_t>(i)]
-                    .attrs.finishing;
-            if (fin > best_fin &&
-                s.players[static_cast<size_t>(base + i)].cards >= 0) {
-                best_fin = fin;
-                best = base + i;
-            }
-        }
-    } else {
-        int32_t best_d = 0x7fffffff;
-        for (int i = 1; i < 11; ++i) {
-            const int slot = base + i;
-            Entity& e = s.players[static_cast<size_t>(slot)];
-            if (e.cards < 0) continue;
-            const int32_t d =
-                SquaredXY(e.pos.x.Whole(), e.pos.y.Whole(), s.globals.foul_x,
-                          s.globals.foul_y);
-            if (d < best_d) {
-                best_d = d;
-                best = slot;
-            }
-        }
-    }
-    tc.controlled_slot = static_cast<int8_t>(best);
-    PlaceTakerNearSpot(s, side);
+    if (IsThrowInState(GetGameState(s)))
+        PlaceThrowInTaker(s, side);
+    else
+        PlaceTakerNearSpot(s, side);
 }
 
 inline int FindPassConeTeammate(MatchState& s, int side, int controlled, int face) {
-    // Closest teammate in ±1 octant of facing from ball (simplified cone).
-    const int16_t bx = s.ball.pos.x.Whole();
-    const int16_t by = s.ball.pos.y.Whole();
+    // Closest teammate in ±1 octant of the owner's facing (owner pos, else ball).
+    int16_t ox = s.ball.pos.x.Whole();
+    int16_t oy = s.ball.pos.y.Whole();
+    if (controlled >= 0 && controlled < kPitchPlayers) {
+        ox = s.players[static_cast<size_t>(controlled)].pos.x.Whole();
+        oy = s.players[static_cast<size_t>(controlled)].pos.y.Whole();
+    }
     const int team = side + 1;
     const int base = side * 11;
     int best = -1;
@@ -185,18 +185,17 @@ inline int FindPassConeTeammate(MatchState& s, int side, int controlled, int fac
         if (slot == controlled) continue;
         Entity& e = s.players[static_cast<size_t>(slot)];
         if (e.cards < 0 || e.team_number != team) continue;
-        if (static_cast<PlayerState>(e.player_state) != PlayerState::Normal)
-            continue;
+        const auto st = static_cast<PlayerState>(e.player_state);
+        if (st != PlayerState::Normal && st != PlayerState::Unknown) continue;
         const int16_t h =
-            AngleTo(Dest{bx, by}, Dest{e.pos.x.Whole(), e.pos.y.Whole()});
+            AngleTo(Dest{ox, oy}, Dest{e.pos.x.Whole(), e.pos.y.Whole()});
         if (h < 0) continue;
         const int oct = static_cast<int>(((static_cast<uint16_t>(h) + 16u) & 0xFFu) >> 5);
         int d = oct - face;
         if (d < 0) d += 8;
         if (d > 4) d = 8 - d;
         if (d > 1) continue;
-        const int32_t dist =
-            SquaredXY(e.pos.x.Whole(), e.pos.y.Whole(), bx, by);
+        const int32_t dist = SquaredXY(e.pos.x.Whole(), e.pos.y.Whole(), ox, oy);
         if (dist < best_d) {
             best_d = dist;
             best = slot;

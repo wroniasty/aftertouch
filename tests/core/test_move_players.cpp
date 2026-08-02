@@ -44,6 +44,9 @@ uint64_t RunScenario() {
     SetGameState(s, GameState::StartingGame);
     s.clock.stoppage_event_timer = 0;
     s.phase = MatchPhase::InPlay;
+    // Lock selection so scripted stick drives slot 9 for the hash pin.
+    s.sides[0].control.ball_out_of_play = 0;
+    s.sides[1].control.ball_out_of_play = 0;
     eng.LoadState(s);
 
     MatchInput in{};
@@ -70,6 +73,9 @@ TEST_CASE("twenty-two players place and controlled player moves") {
     SetGameState(s, GameState::StartingGame);
     s.clock.stoppage_event_timer = 0;
     s.phase = MatchPhase::InPlay;
+    s.sides[0].control.ball_out_of_play = 0;
+    s.sides[1].control.ball_out_of_play = 0;
+    s.sides[0].control.controlled_slot = 9;
     // All 22 off origin.
     for (int i = 0; i < kPitchPlayers; ++i) {
         CHECK(s.players[static_cast<size_t>(i)].pos.x.Whole() != 0);
@@ -90,6 +96,6 @@ TEST_CASE("scripted 200-tick movement hash is stable") {
     CHECK(a == RunScenario());
 
     // Pinned after B4. If movement changes on purpose, print and update.
-    constexpr uint64_t kExpected = 0x24c85e660c7814e9ull;
+    constexpr uint64_t kExpected = 0x05e341c0699753ddull;
     CHECK(a == kExpected);
 }

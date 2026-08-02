@@ -93,15 +93,13 @@ inline bool InPenaltyBox(int16_t x, int16_t y) {
            (y <= kPenaltyBoxTopY) || (y >= kPenaltyBoxBotY);
 }
 
-// Goalward for side 0 (team 1) = toward top (dir N-ish) when playing up is 1,
-// else toward bottom. Simplified: use globals.team_playing_up.
+// Goalward: team_playing_up attacks increasing Y (bottom / "down").
 inline bool KickIsGoalward(const MatchState& s, int side, int dir) {
-    // team_playing_up 1 → that team attacks decreasing Y (top).
     const uint8_t up = s.globals.team_playing_up;
-    const bool attack_top = (up == static_cast<uint8_t>(side + 1));
-    if (attack_top)
-        return dir == 0 || dir == 1 || dir == 7; // N, NE, NW
-    return dir == 3 || dir == 4 || dir == 5;     // SE, S, SW
+    const bool attack_down = (up == static_cast<uint8_t>(side + 1));
+    if (attack_down)
+        return dir == 3 || dir == 4 || dir == 5; // SE, S, SW
+    return dir == 0 || dir == 1 || dir == 7;     // N, NE, NW
 }
 
 inline int16_t SquadAttr(const MatchState& s, const Entity& e, bool finishing) {
@@ -115,9 +113,57 @@ inline int16_t SquadAttr(const MatchState& s, const Entity& e, bool finishing) {
     return finishing ? a.finishing : a.shooting;
 }
 
-// Nearest teammate in a ±1-octant facing cone (dot with facing dest > 0 and
-// rotational distance to best matching octant ≤ 1).
-inline int FindPassTargetSlot(const MatchState& s, int side, int kicker_slot, int dir) {
+inline int16_t SquadPassingAttr(const MatchState& s, const Entity& e) {
+    const int side_i = e.team_number - 1;
+    if (side_i < 0 || side_i >= 2) return 0;
+    const int ord = e.player_ordinal;
+    if (ord < 1 || ord > kMatchSquadSize) return 0;
+    return s.sides[static_cast<size_t>(side_i)]
+        .squad[static_cast<size_t>(ord - 1)]
+        .attrs.passing;
+}
+
+// Provisional max pass-target range: ~70u + ~8u per Passing point (0–7).
+inline int32_t PassTargetMaxDistSq(int passing_attr) {
+    const int r = 70 + 8 * AttrIndex0to7(static_cast<uint8_t>(passing_attr));
+    return static_cast<int32_t>(r) * r;
+}
+
+// True if target lies in ±1 octant of facing and within max_dist_sq.
+inline bool PassTargetInConeAndRange(const MatchState& s, int kicker_slot,
+                                     int target_slot, int dir,
+                                     int32_t max_dist_sq) {
+    if (target_slot < 0 || target_slot >= kPitchPlayers) return false;
+    if (target_slot == kicker_slot) return false;
+    if (dir < 0 || dir > 7) return false;
+    const Entity& k = s.players[static_cast<size_t>(kicker_slot)];
+    const Entity& t = s.players[static_cast<size_t>(target_slot)];
+    const int32_t dx = static_cast<int32_t>(t.pos.x.Whole()) - k.pos.x.Whole();
+    const int32_t dy = static_cast<int32_t>(t.pos.y.Whole()) - k.pos.y.Whole();
+    if (dx == 0 && dy == 0) return false;
+    const int32_t dist = dx * dx + dy * dy;
+    if (dist > max_dist_sq) return false;
+    const Dest ahead = kDefaultDestinations[static_cast<size_t>(dir)];
+    if (dx * ahead.x + dy * ahead.y <= 0) return false;
+
+    int nearest = dir;
+    int32_t best_dot = 0x80000000;
+    for (int d = 0; d < 8; ++d) {
+        const Dest o = kDefaultDestinations[static_cast<size_t>(d)];
+        const int32_t dot = dx * o.x + dy * o.y;
+        if (dot > best_dot) {
+            best_dot = dot;
+            nearest = d;
+        }
+    }
+    const int rot = (nearest - dir) & 7;
+    const int wrap = rot > 4 ? 8 - rot : rot;
+    return wrap <= 1;
+}
+
+// Nearest teammate in a ±1-octant facing cone within max_dist_sq.
+inline int FindPassTargetSlot(const MatchState& s, int side, int kicker_slot, int dir,
+                              int32_t max_dist_sq) {
     const int base = side * 11;
     const int16_t kx = s.players[static_cast<size_t>(kicker_slot)].pos.x.Whole();
     const int16_t ky = s.players[static_cast<size_t>(kicker_slot)].pos.y.Whole();
@@ -148,6 +194,7 @@ inline int FindPassTargetSlot(const MatchState& s, int side, int kicker_slot, in
         if (wrap > 1) continue;
 
         const int32_t dist = dx * dx + dy * dy;
+        if (dist > max_dist_sq) continue;
         if (dist < best_d) {
             best_d = dist;
             best = slot;
@@ -182,18 +229,27 @@ inline bool ApplyKickOrPass(MatchState& s, int side) {
     Fix delta_z{};
 
     if (is_pass) {
-        const int target = FindPassTargetSlot(s, side, slot, dir);
+        const int16_t passing = SquadPassingAttr(s, kicker);
+        const int idx = AttrIndex0to7(static_cast<uint8_t>(passing));
+        const int32_t max_d = PassTargetMaxDistSq(passing);
+
+        int target = -1;
+        if (PassTargetInConeAndRange(s, slot, tc.pass_to_slot, dir, max_d))
+            target = tc.pass_to_slot;
+        else
+            target = FindPassTargetSlot(s, side, slot, dir, max_d);
+
         if (target >= 0) {
             ball.dest_x = s.players[static_cast<size_t>(target)].pos.x.Whole();
             ball.dest_y = s.players[static_cast<size_t>(target)].pos.y.Whole();
             tc.pass_to_slot = static_cast<int8_t>(target);
         } else {
+            // No in-range cone target: ground kick in facing direction.
             const Dest off = kDefaultDestinations[static_cast<size_t>(dir)];
             ball.dest_x = static_cast<int16_t>(bx + off.x);
             ball.dest_y = static_cast<int16_t>(by + off.y);
             tc.pass_to_slot = -1;
         }
-        const int idx = AttrIndex0to7(static_cast<uint8_t>(SquadAttr(s, kicker, false)));
         speed = static_cast<int16_t>(kBallPassingSpeed +
                                     kBallSpeedPassingIncrease[static_cast<size_t>(idx)]);
         delta_z = Fix::FromRaw(kBallPassingDeltaZRaw); // ground pass
@@ -234,8 +290,8 @@ inline bool ApplyKickOrPass(MatchState& s, int side) {
     tc.player_has_ball = 0;
     tc.pass_kick_timer = kPassKickLockoutTicks;
     tc.ball_can_be_controlled = 0;
-    tc.ball_out_of_play = 1;
     tc.ball_in_play = 1;
+    MarkBallLoose(s); // both sides may re-select (AI.md §2.1)
     tc.passing_kicking_slot = static_cast<int8_t>(slot);
     tc.controlled_pl_direction = static_cast<int16_t>(dir);
     s.clock.last_team_played = static_cast<uint8_t>(side + 1);

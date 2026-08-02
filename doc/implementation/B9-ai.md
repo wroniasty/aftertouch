@@ -33,8 +33,11 @@ into `ApplyTeamControls`, tests + acceptance.
 
 ### 2.1 Selection
 
-- `UpdatePlayerBeingPassedTo` — closest eligible teammate excluding controlled +
-  kicker; gated on InProgress / `ball_in_play` and `player_switch_timer == 0`.
+- `UpdatePlayerBeingPassedTo` — facing-cone teammate (±1 octant) when the owner
+  has a facing; else nearest eligible. Gated on InProgress / `ball_in_play`,
+  throw-in / free-kick take (pass assist), and `player_switch_timer == 0`.
+- Pass target is parked (`dest = pos`) while waiting / ball in flight.
+- `TryCompletePassArrival` (B5) arms `player_switch_timer = 25` on handoff.
 - `UpdateControlledPlayer` — swap when `ball_out_of_play`, exclude pass target +
   kicker, honour switch lockout.
 - `PickCpuRestartTaker` — nearest outfield (or best finishing on pen) for CPU.
@@ -54,9 +57,10 @@ table.
 
 ### 2.4 Wire
 
-`ApplyTeamControls`: selection → possession → CPU brain or human stick →
-kick/contest → GK dest for ordinal 1, else controlled/off-ball. Human fire
-refresh skips CPU; aftertouch refresh steers CPU from spin fields.
+`ApplyTeamControls`: controlled selection → possession → CPU brain or human
+stick → pass candidate (facing-aware) → FK/throw shortfall tick → kick/contest →
+GK dest for ordinal 1, else controlled/off-ball. Human fire refresh skips CPU;
+aftertouch refresh steers CPU from spin fields.
 
 ---
 

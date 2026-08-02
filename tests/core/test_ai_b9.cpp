@@ -247,7 +247,7 @@ TEST_CASE("cpu vs cpu short match produces activity") {
 TEST_CASE("scripted cpu chase/shoot hash is stable") {
     const uint64_t a = RunCpuScriptHash();
     CHECK(a == RunCpuScriptHash());
-    constexpr uint64_t kExpected = 0xee75dd97a9402537ull;
+    constexpr uint64_t kExpected = 0x7250d96d4bb3ccd7ull;
     CAPTURE(a);
     CHECK(a == kExpected);
 }

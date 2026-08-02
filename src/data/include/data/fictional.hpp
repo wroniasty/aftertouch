@@ -19,25 +19,66 @@ inline void SetTacticName(std::array<char, kTacticNameLen>& dst, const char* src
 
 namespace fictional_detail {
 
-// Pack a destination on the 16x15 authoring grid.
+// Pack a destination on the 16×15 authoring grid (x 0..14, y 0..15).
 inline constexpr uint8_t Cell(uint8_t x, uint8_t y) {
     return static_cast<uint8_t>(((x & 0x0Fu) << 4) | (y & 0x0Fu));
 }
 
-// A simple shape: role r drifts with the ball column, keeping a vertical band.
-// Starting guesses for B9 — shape is what A5 owns, values are tunable later.
-inline TacticRecord MakeTactic(const char* name, uint8_t out_of_play) {
+// Crude formation shapes authored as "we defend the top goal".
+// Engine ball grid is 5 cols × 7 rows (q = row*5+col). Role y stays in the
+// defending half at centre-ball; pushes deeper as the ball advances.
+// shape: 0 = 4-4-2, 1 = 5-3-2, 2 = 3-5-2
+inline TacticRecord MakeTactic(const char* name, uint8_t out_of_play,
+                               int shape) {
+    // Per-role (x_slot 0..14, y_base 0..15) for centre column.
+    // Defenders ~2–3, mids ~4–5, attackers ~6–7 → own half at ball_row≈3.
+    struct RoleXY {
+        uint8_t x;
+        uint8_t y;
+    };
+    RoleXY roles[10]{};
+    if (shape == 1) {
+        // 5-3-2
+        const RoleXY src[10] = {
+            {1, 2}, {4, 2}, {7, 3}, {10, 2}, {13, 2}, // five backs
+            {3, 5}, {7, 5}, {11, 5},                  // three mids
+            {5, 7}, {9, 7},                           // two attackers
+        };
+        for (int i = 0; i < 10; ++i) roles[i] = src[i];
+    } else if (shape == 2) {
+        // 3-5-2
+        const RoleXY src[10] = {
+            {3, 2}, {7, 3}, {11, 2},                  // three backs
+            {1, 4}, {4, 5}, {7, 5}, {10, 5}, {13, 4}, // five mids
+            {5, 7}, {9, 7},                           // two attackers
+        };
+        for (int i = 0; i < 10; ++i) roles[i] = src[i];
+    } else {
+        // 4-4-2
+        const RoleXY src[10] = {
+            {2, 2}, {5, 3}, {9, 3}, {12, 2}, // four backs
+            {2, 5}, {5, 5}, {9, 5}, {12, 5}, // four mids
+            {5, 7}, {9, 7},                  // two attackers
+        };
+        for (int i = 0; i < 10; ++i) roles[i] = src[i];
+    }
+
     TacticRecord t{};
     SetTacticName(t.name, name);
     t.out_of_play = out_of_play;
     for (size_t r = 0; r < kTacticRoles; ++r) {
-        const uint8_t band = static_cast<uint8_t>((r * 3 + 2) % 16);
         for (size_t q = 0; q < kBallQuadrants; ++q) {
-            const uint8_t ball_col = static_cast<uint8_t>(6 - (q % 7)); // x increases R→L
-            const uint8_t ball_row = static_cast<uint8_t>(q / 7);
-            const uint8_t x = static_cast<uint8_t>((ball_col * 2 + band / 4) % 16);
-            const uint8_t y = static_cast<uint8_t>((ball_row * 3 + band) % 16);
-            t.cells[r][q] = Cell(x, y);
+            const int col = static_cast<int>(q % 5);
+            const int row = static_cast<int>(q / 5);
+            int x = static_cast<int>(roles[r].x) + (col - 2) * 2;
+            if (x < 0) x = 0;
+            if (x > 14) x = 14;
+            // Push with ball row; keep centre-ball (row~3) in own half (y<=7).
+            int y = static_cast<int>(roles[r].y);
+            if (row > 3) y += (row - 3);
+            if (y < 0) y = 0;
+            if (y > 15) y = 15;
+            t.cells[r][q] = Cell(static_cast<uint8_t>(x), static_cast<uint8_t>(y));
         }
     }
     return t;
@@ -80,29 +121,25 @@ inline void FillSquad(TeamRecord& team, uint8_t strength) {
                                   bump(11), bump(6), bump(6), bump(2));
     team.players[4]  = MakePlayer("Centre B", 5, Position::D,  bump(6), bump(2), bump(10),
                                   bump(11), bump(6), bump(6), bump(2));
-    team.players[5]  = MakePlayer("Right mid",7, Position::RW, bump(10), bump(7), bump(5),
-                                  bump(6), bump(10), bump(11), bump(7));
-    team.players[6]  = MakePlayer("Left mid", 11, Position::LW, bump(10), bump(7), bump(5),
-                                  bump(6), bump(10), bump(11), bump(7), Face::Black);
-    team.players[7]  = MakePlayer("Centre mid",8, Position::M, bump(12), bump(6), bump(6),
-                                  bump(8), bump(11), bump(9), bump(6));
-    team.players[8]  = MakePlayer("Box mid",  6, Position::M, bump(11), bump(8), bump(7),
-                                  bump(7), bump(10), bump(8), bump(8), Face::Ginger);
-    team.players[9]  = MakePlayer("Striker",  9, Position::A, bump(8), bump(12), bump(9),
-                                  bump(4), bump(9), bump(10), bump(13));
-    team.players[10] = MakePlayer("Partner", 10, Position::A, bump(7), bump(11), bump(10),
-                                  bump(4), bump(8), bump(9), bump(12), Face::Black);
-    // Bench
-    team.players[11] = MakePlayer("Sub GK",  12, Position::GK, bump(5), bump(1), bump(7),
-                                  bump(3), bump(6), bump(4), bump(1));
-    team.players[12] = MakePlayer("Sub def", 13, Position::D,  bump(5), bump(2), bump(8),
-                                  bump(9), bump(5), bump(6), bump(2));
-    team.players[13] = MakePlayer("Sub mid", 14, Position::M,  bump(8), bump(5), bump(5),
-                                  bump(6), bump(8), bump(8), bump(5));
-    team.players[14] = MakePlayer("Sub wing",15, Position::RW, bump(7), bump(6), bump(4),
-                                  bump(4), bump(8), bump(10), bump(6));
-    team.players[15] = MakePlayer("Sub fwd", 16, Position::A,  bump(6), bump(9), bump(7),
-                                  bump(3), bump(7), bump(8), bump(10));
+    team.players[5]  = MakePlayer("Right mid",6, Position::RW, bump(9), bump(6), bump(6),
+                                  bump(6), bump(9), bump(9), bump(6), Face::Ginger);
+    team.players[6]  = MakePlayer("Left mid", 7, Position::LW, bump(9), bump(6), bump(6),
+                                  bump(6), bump(9), bump(9), bump(6), Face::Black);
+    team.players[7]  = MakePlayer("Central",  8, Position::M,  bump(10), bump(7), bump(7),
+                                  bump(7), bump(10), bump(8), bump(7));
+    team.players[8]  = MakePlayer("Playmaker",9, Position::M,  bump(11), bump(8), bump(6),
+                                  bump(5), bump(11), bump(7), bump(8));
+    team.players[9]  = MakePlayer("Striker", 10, Position::A,  bump(7), bump(11), bump(9),
+                                  bump(4), bump(9), bump(9), bump(12));
+    team.players[10] = MakePlayer("Poacher", 11, Position::A,  bump(6), bump(12), bump(8),
+                                  bump(3), bump(8), bump(10), bump(13), Face::Ginger);
+    for (size_t i = 11; i < kSquadSize; ++i) {
+        char buf[16] = "Sub ";
+        buf[4] = static_cast<char>('0' + static_cast<int>(i - 10));
+        team.players[i] = MakePlayer(buf, static_cast<uint8_t>(12 + (i - 11)),
+                                     Position::M, bump(6), bump(5), bump(6),
+                                     bump(6), bump(7), bump(7), bump(5));
+    }
 }
 
 inline TeamRecord MakeTeam(uint16_t id, const char* name, const char* coach,
@@ -113,24 +150,9 @@ inline TeamRecord MakeTeam(uint16_t id, const char* name, const char* coach,
     SetName(t.name, name);
     SetName(t.coach, coach);
     t.tactics_id = tactics_id;
-    t.tier       = 0;
-    t.primary    = primary;
-    t.secondary  = secondary;
+    t.primary = primary;
+    t.secondary = secondary;
     FillSquad(t, strength);
-    // Suffix each name with the team id so squads are distinct in tests/UI.
-    for (size_t i = 0; i < kSquadSize; ++i) {
-        std::array<char, kNameLen> buf{};
-        size_t n = 0;
-        const char* src = t.players[i].name.data();
-        while (src[n] && n < kNameLen - 4) {
-            buf[n] = src[n];
-            ++n;
-        }
-        buf[n++] = ' ';
-        if (id >= 10) buf[n++] = static_cast<char>('0' + (id / 10) % 10);
-        buf[n++] = static_cast<char>('0' + id % 10);
-        t.players[i].name = buf;
-    }
     return t;
 }
 
@@ -139,9 +161,9 @@ inline TeamRecord MakeTeam(uint16_t id, const char* name, const char* coach,
 inline League MakeFictionalLeague() {
     using namespace fictional_detail;
     League league;
-    league.tactics.push_back(MakeTactic("4-4-2", 0));
-    league.tactics.push_back(MakeTactic("5-3-2", 1));
-    league.tactics.push_back(MakeTactic("3-5-2", 2));
+    league.tactics.push_back(MakeTactic("4-4-2", 0, 0));
+    league.tactics.push_back(MakeTactic("5-3-2", 1, 1));
+    league.tactics.push_back(MakeTactic("3-5-2", 2, 2));
 
     const KitRecord red_white{static_cast<uint8_t>(ShirtType::Plain), 0, 1, 9, 1};
     const KitRecord blue_white{static_cast<uint8_t>(ShirtType::VerticalStripes), 2, 2, 9, 2};

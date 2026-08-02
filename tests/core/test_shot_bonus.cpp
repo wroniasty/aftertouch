@@ -14,7 +14,8 @@ TEST_CASE("InPenaltyBox recognises top and bottom areas") {
 TEST_CASE("in-box goalward shot adds Finishing bonus") {
     MatchState s{};
     SetPl(s, GameStatePl::InProgress);
-    s.globals.team_playing_up = 1;
+    // Home attacks top (decreasing Y); away defends top.
+    s.globals.team_playing_up = 2;
     s.sides[0].control.controlled_slot = 0;
     s.sides[0].control.current_allowed_direction = static_cast<int16_t>(Dir::N);
     s.sides[0].control.pl_very_close_to_ball = 1;
@@ -37,7 +38,7 @@ TEST_CASE("in-box goalward shot adds Finishing bonus") {
 TEST_CASE("outside-box goalward shot adds Velocity bonus") {
     MatchState s{};
     SetPl(s, GameStatePl::InProgress);
-    s.globals.team_playing_up = 1;
+    s.globals.team_playing_up = 2;
     s.sides[0].control.controlled_slot = 0;
     s.sides[0].control.current_allowed_direction = static_cast<int16_t>(Dir::N);
     s.sides[0].control.pl_very_close_to_ball = 1;

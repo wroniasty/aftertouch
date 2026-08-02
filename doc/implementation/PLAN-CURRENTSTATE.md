@@ -49,11 +49,11 @@ A5 was scheduled for Wave 3 but is implemented early. Wave 2 playable slice: key
 | **B12** | Performance rating | **done** | Chronicle + match_stats + band weights; HashState unchanged by compute |
 | **B11** | Result simulation | **done** | Scripted/Table/Engine `IResultSimulator`; envelope tests |
 
-### Part C (Wave 2 slice)
+### Part C (Wave 2–3 slice)
 
 | ID | Part | Status | Acceptance |
 |---|---|---|---|
-| **C1a** | Debug match view | **done** | Pitch + dots in 320×200; walkable with B10 |
+| **C1a** | Debug match view | **done** | Follow-cam + landmarks + play HUD; A5 kickoff; FT freeze; V toggles full pitch |
 | **C1** | Render core (full) | **not started** | Atlas / tiles / weather — Wave 4 |
 
 ---
@@ -72,6 +72,7 @@ Subfile: [B8-set-pieces.md](B8-set-pieces.md)
 | Referee state machine (`UpdateReferee`) | landed |
 | Unit tests + `test_restart_cycle` HashState | landed |
 | Golden / corpus re-pins | landed |
+| Aim-only take + `PickRestartTaker` (human+CPU) + stop-all | landed |
 
 Done-when met locally: restart families resume to open play; scripted HashState pin. Card camera art is C2/C3.
 
@@ -213,6 +214,14 @@ Subfile: [C1a-debug-match-view.md](C1a-debug-match-view.md)
 | `DrawMatch` pitch + ball + 22 dots | landed |
 | `main` uses `DrawMatch` (stub removed) | landed |
 | `test_pitch_to_screen` harness | landed |
+| Ball-follow `DebugView` + clamp + `V` toggle | landed |
+| Landmarks (boxes, centre circle, goal mouths) | landed |
+| Has-ball / pass-target rings; GK tint | landed |
+| Play HUD (clock, phase, restart name, HT/FT) | landed |
+| A5 `ApplyKickoff` bootstrap (human home / CPU away) | landed |
+| Freeze Stepping at FullTime; HT auto-resumes | landed |
+| Live MATCH `.atin` + sparse `.txt` under `traces/` | landed |
+| `tracegen --transcript` (ATTR / ATIN) | landed |
 
 Explicitly not full C1. Camera modes = C2; sprites = C3.
 
@@ -406,9 +415,16 @@ Acceptance met locally (`ctest` seven suites including `corpus_python`). CI gree
 
 Runtime serving is interchangeable; the shell prompt and a complete generated pack set are what remain. Optional follow-up: replace stub-oracle `reference.attr` with a real SWOS_TEST recording.
 
+## Play-feel fixes (post B11)
+
+| Fix | State |
+|---|---|
+| `MarkBallLoose` — auto-switch when ball is loose | landed |
+| Fictional tactics own-half shapes + `team_playing_up` mirror | landed |
+
 ## What Wave 2 / 3 needs next
 
-1. **B9** — AI (selection, zonal off-ball, GK, CPU brain)  
+1. **Wave 3 play-feel gate** — play a full match on C1a dots and decide  
 2. Full **C1** (Wave 4) when presentation work starts — do not grow C1a  
 
 ---

@@ -68,6 +68,10 @@ vcpkg_installed/
 Testing/
 .cache/
 
+# Live MATCH input logs + agent transcripts (C1a play-feel).
+traces/*
+!traces/README.md
+
 # Local reference copies of upstream game assets and tooling.
 # Copyrighted artwork extracted from the original game -- NEVER commit.
 # See PLAN.md section 10 and LEGACY.md section 15.

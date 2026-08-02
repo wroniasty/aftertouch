@@ -86,7 +86,7 @@ TEST_CASE("hold fire near ball launches a shot") {
 TEST_CASE("scripted curled shot hash is stable") {
     const uint64_t a = RunCurledShot();
     CHECK(a == RunCurledShot());
-    constexpr uint64_t kExpected = 0x7bffebb55a689122ull;
+    constexpr uint64_t kExpected = 0xcb06e9fe09803f79ull;
     CAPTURE(a);
     CHECK(a == kExpected);
 }
