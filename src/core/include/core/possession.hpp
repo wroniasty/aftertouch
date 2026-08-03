@@ -1,4 +1,5 @@
 #pragma once
+#include "core/aftertouch.hpp" // ResetBothSpinTimers on capture
 #include "core/angle.hpp"
 #include "core/match_clock.hpp"
 #include "core/match_state.hpp"
@@ -25,13 +26,30 @@ inline constexpr int16_t kBallZBand17 = 17;
 inline constexpr std::array<int16_t, 8> kBallSpeedDeltaWhenControlled = {
     130, 116, 102, 88, 74, 60, 46, 32};
 
+// [CANDIDATE: amiga unk_1106EA asm:34791] — B13 / R4.
+// Direction changes a carrier may make before the ball gets away from him,
+// indexed by Ball Control. Note the accelerating spacing: the top of the scale
+// is worth far more than the bottom, and a Control-7 player can turn more than
+// five times as often as a Control-0 player. CONTROL.md §4 had losing the ball
+// happening only through a tackle; this is the other way, and the ledger calls
+// it the single clearest attribute effect in the game.
+inline constexpr std::array<int16_t, 8> kDribbleTouchesAllowed = {
+    4, 5, 6, 8, 11, 14, 17, 21};
+
+static_assert(kDribbleTouchesAllowed.size() == kAttrTableSize);
+
+// Possession interruption after the touch count overflows (amiga asm:35314).
+inline constexpr int16_t kTouchOverflowWonBallTicks = 8;
+
 inline constexpr std::array<Dest, 8> kBallPlOffsets = {{
     {0, -1}, {1, -1}, {1, 0}, {1, 1}, {0, 1}, {-1, 1}, {-1, 0}, {-1, -1},
 }};
 
-inline int ControlAttrIndex(uint8_t attr) {
-    return attr > 7 ? 7 : static_cast<int>(attr);
-}
+// B13 / R2 invariant: one entry per attribute value.
+static_assert(kBallSpeedDeltaWhenControlled.size() == kAttrTableSize);
+
+// Named for the call site; the range lives in match_state.hpp (B13 / R2).
+inline int ControlAttrIndex(uint8_t attr) { return AttrIndex0to7(attr); }
 
 inline int32_t PossessionBallDistSq(const Entity& e, const Entity& ball) {
     const int32_t dx = static_cast<int32_t>(e.pos.x.Whole()) -
@@ -96,19 +114,66 @@ inline void UpdateProximityBands(MatchState& s, int side) {
     ClassifyPlanarBands(tc, ctrl.ball_distance);
 }
 
+// Capture radius (squared) for a ball arriving at the designated receiver. Grows
+// with ball speed so a fast pass cannot tunnel past the band between two of this
+// side's frames. Speed is ~1/512 units per frame and this side is served every
+// other frame, so the ball covers speed/256 units between checks; the band must
+// cover at least half of that plus the resting band.
+inline constexpr int32_t PassArrivalBandSq(int16_t ball_speed) {
+    const int32_t step = (ball_speed > 0 ? ball_speed : 0) / 256;
+    const int32_t r = 6 + step;
+    const int32_t band = r * r;
+    return band < kDistVeryCloseSq ? kDistVeryCloseSq : band;
+}
+
 inline void TickPassKickLockout(TeamControl& tc) {
     if (tc.pass_kick_timer > 0) {
         --tc.pass_kick_timer;
-        if (tc.pass_kick_timer == 0)
+        if (tc.pass_kick_timer == 0) {
             tc.ball_can_be_controlled = 1;
+            // Release the kicker.
+            //
+            // `passing_kicking_slot` was set on every kick and **never cleared**,
+            // while three places use it as a hard exclusion: he cannot be
+            // selected (UpdateControlledPlayer, RefineControlledSelection) and
+            // cannot be passed to (UpdatePlayerBeingPassedTo). So the last man to
+            // touch the ball was permanently unselectable — for the rest of the
+            // match, unless a team-mate happened to kick.
+            //
+            // The visible symptom is "nobody closes on the ball": the player
+            // standing over it is the one man control cannot go to, so it jumps
+            // to a distant team-mate who then trudges across. In the C1B trace at
+            // t=196 the ball is at (382,375) with slot 10 three units away and
+            // slot 8 a hundred and twenty away — and slot 8 got it, because slot
+            // 10 had just kicked.
+            //
+            // The exclusion exists to stop the kicker being re-selected on the
+            // tick he kicks and to keep the pass-target and controlled selections
+            // from colliding. Both are post-kick concerns, so it lives exactly as
+            // long as the lockout that shares its purpose.
+            tc.passing_kicking_slot = -1;
+        }
     }
 }
 
 inline bool CanCapture(const MatchState& s, const TeamControl& tc, int slot) {
     if (GetPl(s) != GameStatePl::InProgress) return false;
-    if (!tc.ball_can_be_controlled) return false;
-    if (tc.pass_kick_timer > 0) return false;
     if (slot < 0 || slot >= kPitchPlayers) return false;
+
+    // The post-kick lockout exists to stop the **kicker** re-capturing the ball
+    // he has just struck. It was applied to the whole side, and since a side's
+    // TeamControl is shared by all eleven players — and only ticks on that side's
+    // frame, so 25 ticks is 50 real frames — it also forbade the *receiver* from
+    // taking the pass for a full second. Any pass arriving sooner rolled straight
+    // through him: the reported "the receiver doesn't control it, it bounces off".
+    //
+    // Scope it to the kicker. A team-mate may receive immediately; that is the
+    // whole point of a pass.
+    const bool is_kicker = (slot == tc.passing_kicking_slot);
+    if (is_kicker) {
+        if (!tc.ball_can_be_controlled) return false;
+        if (tc.pass_kick_timer > 0) return false;
+    }
     const Entity& e = s.players[static_cast<size_t>(slot)];
     if (PossessionSpecialState(e)) return false;
     if (e.ball_distance > kDistVeryCloseSq) return false;
@@ -128,7 +193,11 @@ inline bool TryCompletePassArrival(MatchState& s, int side) {
     Entity& recv = s.players[static_cast<size_t>(tc.pass_to_slot)];
     if (PossessionSpecialState(recv)) return false;
     recv.ball_distance = PossessionBallDistSq(recv, s.ball);
-    if (recv.ball_distance > kDistVeryCloseSq) return false;
+    // Speed-dependent band (amiga PASSING §5). A fixed 5.7-unit radius is not
+    // enough: team controls run one side per tick, so a pass at 2218 raw covers
+    // ~8.7 units between two consecutive checks of this side and can step clean
+    // over a fixed band without ever testing inside it.
+    if (recv.ball_distance > PassArrivalBandSq(s.ball.speed)) return false;
     // Ground pass arrival — ignore lofted balls still in the air.
     if (s.ball.pos.z.Whole() > kBallZBand4) return false;
 
@@ -181,12 +250,27 @@ inline void UpdatePossession(MatchState& s, int side) {
             ball.dest_x = ball.pos.x.Whole();
             ball.dest_y = ball.pos.y.Whole();
         }
+        // Taking possession ends the aftertouch window. Nothing used to close
+        // it, and the consequences were severe:
+        //
+        //  * the curl kept rewriting the dest of a ball that was now at a
+        //    player's feet, so it squirted away from him ("it bounces off him");
+        //  * worse, capture clears pass_in_progress, so if the ball was received
+        //    before the tick-4 vertical sample the sample then took the **shot**
+        //    branch and set deltaZ to the lob pair at 2688 — launching a tapped
+        //    pass off the receiver's foot into the sky.
+        //
+        // A ball under control is not in flight, and a kick that has been
+        // collected is over.
+        ResetBothSpinTimers(s);
+
         tc.player_has_ball = 1;
         tc.ball_out_of_play = 0;
         s.clock.last_team_played = static_cast<uint8_t>(side + 1);
         if (controlled >= 0 && controlled < kPitchPlayers) {
-            const Entity& e = s.players[static_cast<size_t>(controlled)];
+            Entity& e = s.players[static_cast<size_t>(controlled)];
             tc.ball_controlling_player_direction = e.direction;
+            e.dribble_touches = 0; // fresh possession, fresh touch budget (B13 / R4)
         }
     }
 }
@@ -222,6 +306,27 @@ inline void ApplyDribble(MatchState& s, int side) {
     Entity& ball = s.ball;
 
     const int dir = static_cast<int>(tc.current_allowed_direction);
+
+    // B13 / R4 — the touch count. Only a touch that *changes direction* counts:
+    // running in a straight line is free, and it is turning that costs control.
+    // When the count passes the carrier's Ball-Control threshold the ball gets
+    // away from him — not a foul, not a tackle, just a bad touch.
+    const int ctrl_idx =
+        ControlAttrIndex(static_cast<uint8_t>(CarrierControlAttr(s, player)));
+    const int16_t stored_dir = tc.ball_controlling_player_direction;
+    if (stored_dir >= 0 && stored_dir <= 7 && static_cast<int>(stored_dir) != dir) {
+        if (player.dribble_touches < 255) ++player.dribble_touches;
+        if (player.dribble_touches >
+            kDribbleTouchesAllowed[static_cast<size_t>(ctrl_idx)]) {
+            player.dribble_touches = 0;
+            tc.player_has_ball = 0;
+            tc.ball_can_be_controlled = 0;
+            tc.won_the_ball_timer = kTouchOverflowWonBallTicks;
+            tc.ball_controlling_player_direction = static_cast<int16_t>(dir);
+            return; // the ball keeps its current dest/speed and runs on
+        }
+    }
+
     const int16_t px = player.pos.x.Whole();
     const int16_t py = player.pos.y.Whole();
     const Dest nudge = kBallPlOffsets[static_cast<size_t>(dir)];
@@ -232,8 +337,7 @@ inline void ApplyDribble(MatchState& s, int side) {
     ball.dest_y = static_cast<int16_t>(py + nudge.y + ahead.y);
     tc.ball_controlling_player_direction = static_cast<int16_t>(dir);
 
-    const int idx = ControlAttrIndex(static_cast<uint8_t>(CarrierControlAttr(s, player)));
-    const int16_t delta = kBallSpeedDeltaWhenControlled[static_cast<size_t>(idx)];
+    const int16_t delta = kBallSpeedDeltaWhenControlled[static_cast<size_t>(ctrl_idx)];
     // Control table = ahead offset on carrier speed (not an absolute 32…130 speed).
     if ((s.tick & 2u) != 0 || ball.speed == 0) {
         int32_t sp = static_cast<int32_t>(player.speed) + delta;
@@ -261,6 +365,7 @@ inline void GiveBallForTest(MatchState& s, int side, int slot) {
     tc.pass_kick_timer = 0;
     tc.ball_out_of_play = 0;
     e.ball_distance = 0;
+    e.dribble_touches = 0;
     ClassifyPlanarBands(tc, 0);
     ClassifyHeightBands(tc, 0);
     s.clock.last_team_played = static_cast<uint8_t>(side + 1);

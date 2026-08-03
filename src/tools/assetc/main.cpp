@@ -171,6 +171,39 @@ int ProbeSwos(const Options& o) {
     std::printf("\n  wrote %d packs, %d sprites, %zu bytes to %s\n", rep.packs,
                 rep.sprites, rep.bytes, o.out_dir.string().c_str());
 
+    // Pitches come from the same installation and are a separate file pair per pitch.
+    // Import every one present rather than only --pitch N: they cost 200 KB each, the
+    // seasonal selection is later work, and a half-imported set is the kind of thing
+    // that is discovered on the pitch nobody tested.
+    std::printf("\n  pitches\n");
+    int pitches = 0;
+    for (int n = 1; n <= 6; ++n) {
+        std::error_code ec;
+        if (!fs::exists(o.swos_dir / ("pitch" + std::to_string(n) + ".blk"), ec)) continue;
+
+        std::vector<uint8_t> pack, pal;
+        at::assetc::SwosPitchReport pr;
+        if (!at::assetc::ImportSwosPitch(o.swos_dir, n, pack, pal, pr, err)) {
+            std::printf("error: %s\n", err.c_str());
+            return 1;
+        }
+        if (!at::assets::Validate(pack) || !at::assets::Validate(pal)) {
+            std::printf("error: pitch %d produced a pack that fails its own validator\n", n);
+            return 1;
+        }
+        const std::string stem = "pitch" + std::to_string(n);
+        if (!at::assetc::WritePack(o.out_dir / (stem + ".atp"), pack, err) ||
+            !at::assetc::WritePack(o.out_dir / (stem + ".atl"), pal, err)) {
+            std::printf("error: %s\n", err.c_str());
+            return 1;
+        }
+        std::printf("    %-8s %4d tiles (%d used)  %dx%d cells  %zu bytes\n", stem.c_str(),
+                    pr.tile_count, pr.tiles_used, pr.grid_w, pr.grid_h, pr.pack_bytes);
+        ++pitches;
+    }
+    if (pitches == 0)
+        std::printf("    none found (no pitchN.blk beside sprite.dat)\n");
+
     static const char* kLayerNames[] = {"background", "skin",   "hair",  "shirt",
                                         "stripes",    "shorts", "socks"};
     std::printf("\n  kit layers across the player bank\n");

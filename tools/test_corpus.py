@@ -32,11 +32,15 @@ def hash_chain(attr: bytes) -> int:
     return chain
 
 
+ATIN_HEADER_SIZE = 20  # v2: adds the scenario setup id + 3 pad bytes
+
+
 def parse_atin(data: bytes) -> tuple[int, int]:
-    magic, ver, _prof, _ft, seed, count = struct.unpack_from("<IHBBII", data, 0)
-    if magic != 0x4E495441 or ver != 1:
+    magic, ver, _prof, _ft, seed, count, _setup = struct.unpack_from(
+        "<IHBBIIB", data, 0)
+    if magic != 0x4E495441 or ver != 2:
         raise ValueError("bad ATIN")
-    if len(data) < 16 + count * 4:
+    if len(data) < ATIN_HEADER_SIZE + count * 4:
         raise ValueError("truncated ATIN")
     return seed, count
 

@@ -17,27 +17,18 @@ struct Bank {
     size_t      count;
 };
 
-// Bands are named for WHERE THEY CAME FROM, not for what they depict.
-//
-// The obvious names -- "vertical stripes", "coloured sleeves", "horizontal stripes" --
-// are exactly the trap. A band's shirt geometry depends on which team file the game
-// loaded into that slot, so the same index means different art on different runs.
-// convertGameSprites.py calls 644 "horizontal stripes" because the extraction that
-// produced its BMPs had team3 in slot B; with the default team1/team2 pair, rendering
-// 644 shows contrasting sleeves instead. Naming a bank after a run's configuration is
-// how that becomes a silent bug, so these say slot and block and nothing more. Which
-// geometry is which is C3's to resolve -- see A4 section 6.5.
+// Bands indexed straight out of sprite.dat. The player bank is NOT here: it is loaded
+// once per team file into set.geometries (swos_sprites.hpp), because a sprite.dat slot
+// describes which team file a particular run loaded, not which shirt geometry the art
+// depicts. A4 §6.5 is resolved there.
 constexpr Bank kBanks[] = {
     {"charset",     0,    227},
     {"score",       227,  114},
-    {"slotA_blk0",  341,  101},   // team file in slot A, first 101-frame block
-    {"slotA_blk1",  442,  101},
-    {"slotA_blk2",  543,  101},
-    {"slotB_blk0",  644,  101},   // team file in slot B
-    {"slotB_blk1",  745,  101},
-    {"slotB_blk2",  846,  101},
     {"keepers",     947,   58},
     {"bench",       1310,  12},
+    // The match's small change, all of it in bench.dat and none of it imported before.
+    {"ball",        1179,   5},   // 4 rotation frames at 4x4, then the shadow
+    {"numbers",     1188,  16},   // shirt numbers 1..16; 1..9 are 3x5, 10..16 are 5x5
 };
 
 } // namespace
@@ -64,8 +55,64 @@ const std::array<uint8_t, 16>& KitLayerTable() {
     return kTable;
 }
 
+const std::array<uint8_t, 10>& KitColourOrdinals() {
+    static const std::array<uint8_t, 10> kOrdinals = {1, 2, 3, 6, 10, 11, 12, 13, 14, 15};
+    return kOrdinals;
+}
+
+namespace {
+
+// One 101-frame geometry bank. Frames the original left empty are written as 1x1
+// transparent rather than skipped, because the animation tables index by frame number
+// and a short pack would silently shift every index after the gap.
+bool WriteGeometryBank(const std::vector<SwosSprite>& frames, const char* name,
+                       const fs::path& out_dir, SwosImportReport& report,
+                       std::string& err) {
+    PackBuilder pack(assets::Kind::kSprites, assets::SourceKind::kOriginal);
+    const std::vector<uint8_t> blank(1, 0);
+    int written = 0;
+    for (int k = 0; k < kPlayerBankFrames; ++k) {
+        const bool have = k < static_cast<int>(frames.size()) && !frames[static_cast<size_t>(k)].indices.empty();
+        if (have) {
+            const SwosSprite& s = frames[static_cast<size_t>(k)];
+            if (!pack.Add(s.header.width, s.header.nlines, s.header.centre_x,
+                          s.header.centre_y, s.indices, err))
+                return false;
+            pack.MixSource(s.indices);
+            ++written;
+        } else if (!pack.Add(1, 1, 0, 0, blank, err)) {
+            return false;
+        }
+    }
+    const std::vector<uint8_t> bytes = pack.Build();
+    if (!assets::Validate(bytes)) {
+        err = std::string("bank ") + name + " failed its own validator";
+        return false;
+    }
+    if (!WritePack(out_dir / (std::string(name) + ".atp"), bytes, err)) return false;
+    ++report.packs;
+    report.sprites += written;
+    report.bytes += bytes.size();
+    return true;
+}
+
+} // namespace
+
 bool ImportSwosSprites(const SwosSpriteSet& set, const fs::path& out_dir,
                        SwosImportReport& report, std::string& err) {
+    static const char* kGeometryBankNames[kShirtGeometryCount] = {
+        "kit_vstripe", "kit_hstripe", "kit_sleeves"};
+    for (int g = 0; g < kShirtGeometryCount; ++g) {
+        if (!WriteGeometryBank(set.geometries[static_cast<size_t>(g)],
+                               kGeometryBankNames[g], out_dir, report, err))
+            return false;
+        if (g == 0) {
+            for (const SwosSprite& s : set.geometries[0])
+                for (uint8_t px : s.indices)
+                    if (px < 16) ++report.layer_pixels[KitLayerTable()[px]];
+        }
+    }
+
     for (const Bank& bank : kBanks) {
         PackBuilder pack(assets::Kind::kSprites, assets::SourceKind::kOriginal);
         int written = 0;
@@ -84,11 +131,6 @@ bool ImportSwosSprites(const SwosSpriteSet& set, const fs::path& out_dir,
                 return false;
             pack.MixSource(s.indices);
             ++written;
-
-            if (bank.first == 341) {
-                for (uint8_t px : s.indices)
-                    if (px < 16) ++report.layer_pixels[KitLayerTable()[px]];
-            }
         }
 
         const std::vector<uint8_t> bytes = pack.Build();
@@ -117,8 +159,13 @@ bool ImportSwosSprites(const SwosSpriteSet& set, const fs::path& out_dir,
     if (!pal.Add(256 * 4, 1, 0, 0, rgba, err)) return false;
     pal.MixSource(rgba);
 
-    const std::array<uint8_t, 16>& layers = KitLayerTable();
-    pal.SetAux(16, 1, std::vector<uint8_t>(layers.begin(), layers.end()));
+    const std::array<uint8_t, 16>& layers   = KitLayerTable();
+    const std::array<uint8_t, 10>& ordinals = KitColourOrdinals();
+    std::vector<uint8_t> aux;
+    aux.reserve(kPaletteAuxBytes);
+    aux.insert(aux.end(), layers.begin(), layers.end());
+    aux.insert(aux.end(), ordinals.begin(), ordinals.end());
+    pal.SetAux(kPaletteAuxBytes, 1, std::move(aux));
 
     const std::vector<uint8_t> pal_bytes = pal.Build();
     if (!assets::Validate(pal_bytes)) {

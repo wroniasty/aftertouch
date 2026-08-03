@@ -32,5 +32,10 @@ TEST_CASE("scripted exit through touchline stops play") {
     CHECK((gs == GameState::ThrowInForwardLeft ||
            gs == GameState::ThrowInCentreLeft ||
            gs == GameState::ThrowInBackLeft));
-    CHECK(eng.State().globals.foul_x < kPlayableMinX);
+    // foul_x is the *restart spot*, not the exit point (amiga SETPIECES §2: every
+    // restart writes the placement coordinates into these globals). A throw-in is
+    // pinned to the touchline, so it lands on kPlayableMinX rather than past it —
+    // this used to read `< kPlayableMinX`, which was asserting that the ball was
+    // restarted from off the pitch.
+    CHECK(eng.State().globals.foul_x == kThrowInXLeft);
 }

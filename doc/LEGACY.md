@@ -24,6 +24,19 @@ A rule for the whole document: no numeric constant here should be pasted into th
 engine as fact. Every one of them is a starting guess for a parameter that gets
 fitted against reference traces.
 
+> **A second oracle now exists.** The documents in [amiga/](amiga/) were traced
+> through a 68000 disassembly of the **Amiga SWOS 96/97 match module** — the build
+> the DOS port was ported *from*. Its gameplay data tables carry descriptive labels
+> and literal values, so most of §15's physics and tuning unknowns now have a
+> **candidate number**. Where the two oracles agree, a claim is settled; where they
+> disagree, that disagreement is itself a finding and is recorded rather than
+> quietly resolved. The full ledger of what changed is
+> [AMIGA_CHANGES.md](AMIGA_CHANGES.md).
+>
+> The rule above stands unchanged. A recovered value is a *measurement of the
+> original*, not a specification we are obliged to match, and the interpretation
+> wrapped around it can still be wrong.
+
 ---
 
 ## 1. Which original are you cloning?
@@ -522,22 +535,73 @@ caller supplies. Never call a platform RNG from the simulation.
 | S | Speed | Movement speed |
 | F | Finishing | Precision and power of shots from **inside** the area |
 
-`[COMMUNITY]` Stored as 4-bit values 0 to 15, but the effective scale is 0 to 7: the
+`[DATA]` Stored as 4-bit values 0 to 15, but the effective scale is 0 to 7: the
 high bit is redundant, so 8 behaves as 0, 9 as 1, up to 15 as 7. Whatever the high
 bit originally meant, it is not skill magnitude. Preserve it in your importer rather
 than masking it away; it may turn out to be a flag.
 
-`[COMMUNITY]` **Goalkeepers have no skill values at all.** Keeper quality is derived
+> **Confirmed, and with the mechanism.** This was a `[COMMUNITY]` claim; the Amiga
+> original settles it. `AdjustPlayerSkills` (asm:102092) loads the packed longword
+> and masks it with **`$07777777`** — three bits per nibble — before unpacking seven
+> consecutive bytes and clamping each to 7. A stored 8 becomes 0 and a stored 15
+> becomes 7 because **the high bit is literally masked off on load**, which is
+> exactly what the community observed from the outside. The eighth nibble is masked
+> away entirely, confirming there are seven skills and not eight.
+>
+> Two consequences. First, the range really is **0–7**, and every attribute-indexed
+> table in the engine has exactly eight entries — so the "are these tables
+> undersized?" worry that [DATA.md](DATA.md) §3 raised, and that
+> [HEADING.md](HEADING.md) §6 appeared to confirm, is void
+> ([HEADING.md](HEADING.md) §10). Second, the high bit carries no information the
+> engine reads, so preserving it in an importer is a precaution rather than a
+> requirement. See [amiga/PLAYERS.md](amiga/PLAYERS.md) §1.
+
+> **The stored nibbles are not the final ratings.** Before unpacking, a factor
+> derived from the player's transfer value (`× 100 / value`, with a conditional −12
+> and a flat override under a competition flag) is computed and applied to every
+> nibble through a per-skill transform. Tuning fitted against raw extracted team data
+> will therefore carry a systematic bias unless that transform is modelled — even as
+> a stub. [amiga/PLAYERS.md](amiga/PLAYERS.md) §3.
+
+`[DATA]` **Goalkeepers have no skill values at all.** Keeper quality is derived
 from the player's transfer value. If you want a better keeper model, that is a place
 where deviating from the original is clearly an improvement rather than a betrayal.
+
+> **Now with the formula.** `goalieSkill = clamp((value + 3) / 7 + b, 0, 7)` where
+> `b` is 1 or 2 from a global bit, plus two competition-context ±1 adjustments — so
+> the same keeper can be up to two points better or worse depending on the fixture,
+> which on a scale of eight is a swing of 12.5 percentage points of goal probability
+> ([AI.md](AI.md) §10). Non-keepers get 0. Value *is* the rating, unambiguously.
 
 `[COMMUNITY]` The three letters displayed beside a player's name are simply his three
 highest attributes, computed for display. Not a stored field.
 
-`[UNKNOWN]` How each attribute maps to a numeric modifier in the simulation. Speed
-presumably scales max velocity, but by how much per point, and linearly or not, is
-unpublished. Same for every other attribute. This is a large block of measurement
-work and it is unavoidable.
+~~`[UNKNOWN]` How each attribute maps to a numeric modifier in the simulation.~~
+**Answered for six of the seven**, from the Amiga original. Every one is a linear
+eight-entry table:
+
+| Attribute | What it indexes | 0 → 7 |
+|---|---|---|
+| **Passing** | *no in-match reader found* | — |
+| **Velocity** | Long-shot launch speed bonus | 1824 → 2592 (+42 %) |
+| **Heading** | Jumping-header speed bonus | −336 → 0 (**handicap only**) |
+| **Tackling** | Contest odds (averaged with Control); recovery time | recovery 30 → 9 ticks |
+| **Control** | Contest odds; dribble touch size; touches before loss | 4 → 21 touches |
+| **Speed** | Running speed | 928 → 1250 (+35 %) |
+| **Finishing** | Close-range shot bonus; the goal-vs-save roll | 1920 → 2816; 6 % → 94 % goal odds |
+
+Ranked by in-match consequence: **Finishing** dominates (it appears twice and each
+point is worth 6.25 points of goal probability), then **Control** (three consumers,
+with an accelerating curve), then **Tackling** (two-sided: the odds *and* the cost of
+failure), then **Speed** (a flat 35 % band, the least differentiating), then
+**Velocity** (only outside the box), then **Heading** (pure handicap, no upside).
+
+`[UNKNOWN]` **Does anything read Passing?** A sweep of the Amiga match module's
+documented routines found no read site — `DoPass` targets by geometry alone. If that
+holds, Passing is a **career-only attribute** that affects transfer value and nothing
+on the pitch. It is a surprising claim, it is checkable against the DOS port, and it
+should be checked before we ship an attribute UI: showing a rating that does nothing
+is worse than not showing it. [amiga/PLAYERS.md](amiga/PLAYERS.md) §2.
 
 ### Other player fields
 
@@ -638,38 +702,105 @@ which is exactly the split the architecture assumes.
 Everything tagged `[UNKNOWN]` or `[DISPUTED]`, collected. This is the Phase 0 backlog.
 Each item becomes a scenario in the trace corpus.
 
+> **The Amiga oracle closed most of this list.** Items struck through below now have
+> a **candidate value** recovered from the Amiga original's data segment, where the
+> physics and tuning constants are named literals rather than opaque addresses. That
+> changes what the trace corpus is *for*: these items become **confirmation
+> scenarios** — check our number against the original's — rather than searches. The
+> per-subsystem derivations are in [amiga/](amiga/); the full ledger of what moved is
+> [AMIGA_CHANGES.md](AMIGA_CHANGES.md).
+>
+> A value being present does not make the surrounding interpretation right. Each
+> chain from "this word is 4608" to "therefore gravity is 0.0703 px/frame²" passes
+> through assumptions about fixed-point format and frame rate, and those are what a
+> trace should attack.
+
 **Timing and integration**
-- [ ] Confirm simulation tick rate on the reference build
-- [ ] Fixed-point format and pitch coordinate scale in internal units
-- [ ] Integration order per tick (input, AI, movement, collision, ball)
+- [x] ~~Confirm simulation tick rate on the reference build~~ — **50 Hz** on the
+      Amiga, derived and corroborated from the four match-length settings
+      ([SIMULATION.md](SIMULATION.md) §14). The PC build's rate is still inferred.
+- [x] ~~Fixed-point format and pitch coordinate scale in internal units~~ — 16.16
+      for position and velocity; `speed` is a separate int16 in units of **~1/512
+      px/frame**, so 512 ≈ 1 px/frame ([STATE.md](STATE.md) §11).
+- [x] ~~Integration order per tick~~ — clock, input (latched once), ball, players in
+      **fixed index order seeing partial results**, presentation
+      ([SIMULATION.md](SIMULATION.md) §14).
 - [ ] Rounding and truncation behaviour in fixed-point multiply and divide
+- [ ] **Whether team decisions really alternate one team per frame.** Now the single
+      highest-value open item: it halves each side's decision rate and changes input
+      latency ([MOVEMENT.md](MOVEMENT.md) §13).
 
 **Player movement**
-- [ ] Max speed per Speed attribute value (all 8 levels)
-- [ ] Acceleration and deceleration ramps
-- [ ] Turning behaviour between the 8 directions, including whether turns cost speed
-- [ ] Animation frame timing relative to movement
+- [x] ~~Max speed per Speed attribute value (all 8 levels)~~ — `928, 974, 1020, 1066,
+      1112, 1158, 1204, 1250` in play; `1136 … 1248` when stopped. Linear, +46 per
+      point, 35 % spread.
+- [x] ~~Acceleration and deceleration ramps~~ — **there are none.** Full speed or
+      nothing, same tick ([MOVEMENT.md](MOVEMENT.md) §3.3).
+- [x] ~~Turning behaviour, including whether turns cost speed~~ — no turn-rate limit
+      and no cost; restriction is applied by masking *input*, walking outward from
+      the requested octant ([MOVEMENT.md](MOVEMENT.md) §13).
+- [x] ~~Animation frame timing relative to movement~~ — `max(1280 − speed, 0)/128 + 6`,
+      computed inside the simulation. Confirmed identically by both oracles.
 
 **Ball**
-- [ ] Gravity
-- [ ] Restitution and rolling friction per pitch type (7 sets)
-- [ ] Kick power curve: hold duration in ticks to launch speed
-- [ ] Launch elevation as a function of hold duration
-- [ ] Capture radius and dribble kick distance
-- [ ] How Control modifies dribble kick distance
+- [x] ~~Gravity~~ — `4608` in 16.16 = 0.0703 px/frame² = **176 px/s²**.
+- [x] ~~Restitution and rolling friction per pitch type (7 sets)~~ — all three tables,
+      all seven surfaces, confirmed element-for-element by both oracles
+      ([BALL.md](BALL.md) §12).
+- [x] ~~Kick power curve: hold duration to launch speed~~ — **there is no curve for
+      kicks**: a flat `2208` for everyone, with skill entering only as a bonus. There
+      *is* one for passes: a ramp `$600 … $8AA` by hold duration
+      ([SHOOTING.md](SHOOTING.md) §9).
+- [x] ~~Launch elevation as a function of hold duration~~ — flat `$14000`; elevation
+      is changed only by aftertouch at tick 4.
+- [x] ~~Capture radius and dribble kick distance~~ — the aim point is placed ±1000
+      units ahead; capture is gated by five exact height bands (4/8/12/17) with a
+      hard ceiling at z = 17 ([CONTROL.md](CONTROL.md) §8).
+- [x] ~~How Control modifies dribble kick distance~~ — `130, 116, … 32` by Control,
+      **inverted** (low Control pushes the ball further), fired on 2 frames in 4.
+- [ ] The three **planar** proximity thresholds. Single-sourced from the DOS port
+      (`≤ 32 / 72 / 2450` squared); the Amiga could not isolate them.
+- [ ] Which pitch index is which named surface in the Amiga binary. The tables match
+      the DOS port's exactly, so the naming almost certainly carries over, but the
+      index arrives from outside the match module.
 
-**Aftertouch**
-- [ ] Window length in ticks
-- [ ] Effect strength decay against elapsed ticks
-- [ ] Lateral acceleration magnitude for curl
-- [ ] Vertical effect magnitude for low/high/lob
-- [ ] Whether aftertouch differs between passes and shots
+**Aftertouch**  
+*(engine-side status: structure fixed in [B6a](implementation/B6a-kick-fidelity.md);
+the values below now have candidates from the Amiga and should be re-tagged from
+`[PROVISIONAL]` to `[CANDIDATE]` as they are confirmed against traces.)*
+- [x] ~~Window length in ticks~~ — **10**, counted 0–9, `−1` inactive.
+- [x] ~~Effect strength decay against elapsed ticks~~ — `5, 4, 3, 2, 2, 2, 2, 1, 1, 1`,
+      summing to 23, with **more than half the curl in the first three ticks**.
+- [x] ~~Lateral acceleration magnitude for curl~~ — a 32-entry table of aim-point
+      offsets, magnitudes 0 / 23 / 32, halved for passes
+      ([AFTERTOUCH.md](AFTERTOUCH.md) §11).
+- [x] ~~Vertical effect magnitude for low/high/lob~~ — lob `$20000` at speed 2688,
+      drive `$16000` at 2560, against a launch default of `$14000` / 2208. Both
+      branches *raise* the ball; nothing makes it fly lower than it left the foot.
+- [x] ~~Whether aftertouch differs between passes and shots~~ — yes, three ways: half
+      -strength curl, indexed on the ball's *current* heading rather than the launch
+      direction, and **no loft at all** for passes, only a one-shot `+1/8` on speed.
+- [ ] **Which way the side-latch subtraction runs.** The two oracles transcribe it
+      with the operands reversed, which swaps the curl direction in every non-trivial
+      case ([AFTERTOUCH.md](AFTERTOUCH.md) §11). One line, total effect on feel.
 
 **Contests**
-- [ ] Slide tackle: reach, duration, recovery time
-- [ ] Running tackle resolution: inputs, weights, randomness
-- [ ] Header: trigger height range, jump arc, resulting ball velocity
-- [ ] Deflection rules on intercepted balls
+- [x] ~~Slide tackle: reach, duration, recovery time~~ — launch `1792`, friction 96
+      per tick (≈ 17 units, 19 ticks), recovery `30 … 9` by Tackling, or a flat 3 on
+      the deflecting path.
+- [x] ~~Running tackle resolution: inputs, weights, randomness~~ — one
+      `Rand() & 31` against `16 … 23` of 32, indexed by the difference of the two
+      players' *(Tackling + Control)/2*. Exactly 50/50 when level; 71.9 % at maximum
+      advantage. There is no separate standing-tackle path.
+- [x] ~~Header: trigger height range, jump arc, resulting ball velocity~~ — jump
+      launch 2048 for **50 frames**, ball at `player.speed × 5/4`, rise `$A000` —
+      exactly half a kick's. Heading contributes a **handicap only**, `−336 … 0`.
+- [ ] Deflection rules on intercepted balls — still open for a *non-tackling*
+      player. The tackle case is documented ([TACKLING.md](TACKLING.md) §12).
+- [ ] **Which way round the foul-from-behind test goes.** The two oracles read it as
+      exact complements ([TACKLING.md](TACKLING.md) §12). This inverts the refereeing
+      of every challenge and is the highest-value contest item.
+- [ ] What marks a slide as a *deflecting* tackle rather than a possession attempt.
 
 **AI: instrumentation (do this first)**
 - [ ] Locate where the reference writes per-player synthesized controller values
@@ -677,9 +808,15 @@ Each item becomes a scenario in the trace corpus.
 - [ ] Confirm two-layer diffing works on a known-good scenario
 
 **AI: off-ball**
-- [ ] What "steer toward tactic target" means mechanically
-- [ ] Arrival radius, if any
-- [ ] Whether any override exists beyond ball pursuit (marking, pressing, offside)
+- [x] ~~What "steer toward tactic target" means mechanically~~ — a pure table lookup:
+      the ball's **predicted landing point** selects one of 35 zones, a 35-byte row
+      per player yields one nibble-packed cell on a 15 × 16 lattice, plus a centred
+      sub-zone nudge. No steering, no collision avoidance ([AI.md](AI.md) §10).
+- [x] ~~Arrival radius, if any~~ — none; the destination is reached and snapped
+      per-axis ([MOVEMENT.md](MOVEMENT.md) §1.3).
+- [x] ~~Whether any override exists beyond ball pursuit (marking, pressing, offside)~~
+      — **none, and there is no offside rule at all**, confirmed by independent
+      sweeps of both binaries.
 
 **AI: ball pursuit**
 - [ ] How many players chase the ball
@@ -690,7 +827,9 @@ Each item becomes a scenario in the trace corpus.
 - [ ] Human-team auto-selection rule and switch conditions
 
 **AI: shooting**
-- [ ] Human fire-hold threshold in ticks for shot versus pass (community guess: ~4)
+- [ ] Human fire-hold threshold in ticks for shot versus pass (community guess: ~4).
+      Still open on **both** oracles — one of the few gameplay constants neither
+      binary gives up easily.
 - [ ] Whether the CPU bypasses the hold requirement
 - [ ] Shoot predicate inputs: goal distance, facing cone, pressure, area, ball height
 - [ ] Whether the predicate is evaluated per tick (rebound fingerprint)
@@ -702,15 +841,31 @@ Each item becomes a scenario in the trace corpus.
 - [ ] Goalkeeper distribution logic
 
 **RNG**
-- [ ] Whether the simulation contains any randomness at all
-- [ ] Which generator, exact algorithm and word size
-- [ ] How it is seeded, and whether it is per-match or persistent
+- [x] ~~Whether the simulation contains any randomness at all~~ — yes, but far less
+      than expected. **The two most consequential rolls in the game do not use it**:
+      the goal-versus-save resolution and the goalmouth rebound scatter both read the
+      frame counter instead ([AI.md](AI.md) §10, [BALL.md](BALL.md) §12).
+- [x] ~~Which generator, exact algorithm and word size~~ — a 256-byte table walked by
+      an 8-bit position counter, XORed with a key refreshed on wrap. Returns a byte;
+      callers mask it (`& 31`, `& $18`, `& 3`, `& 1`).
+- [x] ~~How it is seeded~~ — **it is not seeded at all.** Three bytes of state, period
+      65 536 draws, fully deterministic from cold. Which means the *call order* is
+      part of the simulation state: one speculative draw for a cosmetic effect
+      desynchronises every gameplay roll after it.
 - [ ] Verify: same state replayed twice produces bit-identical traces
+- [ ] Whether the second stream (`Rand2`) is original or a port addition. §10's
+      isolation of career result generation from the match stream depends on it
+      ([SIMULATION.md](SIMULATION.md) §14).
+- [ ] Extract the 256-byte table verbatim (asm:32590).
 
 **Attributes**
-- [ ] Numeric modifier per attribute per point, for all seven attributes
-- [ ] Whether modifiers are linear
-- [ ] What the redundant high bit in the skill nibble means
+- [x] ~~Numeric modifier per attribute per point, for all seven attributes~~ — §9.
+- [x] ~~Whether modifiers are linear~~ — all of them are, with even steps.
+- [x] ~~What the redundant high bit in the skill nibble means~~ — **nothing.** It is
+      masked off on load by `$07777777`, which is precisely why 8 reads as 0 (§9).
+- [ ] Whether **Passing** has any in-match reader (§9).
+- [ ] The value→skill transform applied during unpack, which stands between a team
+      file's numbers and the engine's (§9).
 
 **Contested**
 - [ ] Green tick semantics: career-only value growth, or in-match performance effect
@@ -737,6 +892,15 @@ conflict is recorded above rather than resolved.
   surface behaviour.
 - `github.com/zlatkok/swos-port` asset scripts, for sprite layering and asset
   structure.
+- **A 68000 disassembly of the Amiga SWOS 96/97 match module**, held in the sibling
+  repository `original-amiga-swos`. IDA output with a substantial hand-annotation
+  layer, including named labels on the gameplay data tables. This is the source
+  behind the [amiga/](amiga/) documents and behind most of the values now filled in
+  above. Control flow is read directly and is reliable; symbol *names* are a human's
+  interpretation and are wrong in at least two places that matter
+  ([amiga/STATE.md](amiga/STATE.md) §5). Cited throughout as `asm:NNNNN`, meaning a
+  line number in that file. Like the DOS port, it is used **as an oracle, never as a
+  source of code**.
 - Community player databases (`swos.gazchap.com`, `database.swos.info`) for the shape
   of the player data model.
 - Community FAQs on GameFAQs and Neoseeker, for control specifics and scoring

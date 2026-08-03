@@ -22,6 +22,12 @@ against each other, and where the two sources disagree is recorded.
 > Unlike the behavioural documents, this one is about layout rather than tuning, so
 > its contents are facts about the original binary rather than fitting targets.
 
+> **A third vote.** [amiga/STATE.md](amiga/STATE.md) reconstructs the same three
+> structures from the Amiga original's IDA `struc` blocks, checked against real
+> access sites. **Every `Sprite` offset in §2 and every `PlayerInfo` attribute offset
+> in §5 is confirmed byte for byte**, and the disagreement in §4 is settled. §5's
+> claim that the attribute range is not 0–7 is **refuted**. See §11.
+
 ---
 
 ## 0. One-paragraph version
@@ -288,19 +294,31 @@ Accessed in the decompilation as `PlayerGameHeader`, which is `PlayerInfo` offse
 `PlayerGameHeader` offsets; the table above is `PlayerInfo`-relative. Subtract
 `kTeamGameHeaderSize` (42) to convert: `72 − 42 = 30` = `tackling`. ✓
 
-### The attribute range is not 0–7
+### The attribute range ~~is not 0–7~~ **is 0–7**
 
-[HEADING.md](HEADING.md) §6 establishes this from the 13-entry
-`kPlayerHeaderSpeedIncrease` table, indexed by the raw attribute with no clamp — so
-`heading` reaches at least 12. Since attributes are single bytes with no packing,
-**nothing structural limits them to 0–7**.
+> ⚠️ **This subsection was wrong and is retained only so the error is traceable.**
+> It rested on [HEADING.md](HEADING.md) §6's thirteen-entry
+> `kPlayerHeaderSpeedIncrease`, which is a mis-read of an eight-entry table — the
+> five positive values belong to the next data item in the segment
+> ([HEADING.md](HEADING.md) §10). The Amiga original masks each stored nibble with
+> `7` and clamps to 7 explicitly on load, and every attribute-indexed table in the
+> engine has exactly eight entries ([amiga/PLAYERS.md](amiga/PLAYERS.md) §1).
+> **The range is 0–7.** The 1–8 the interface shows is a display offset.
 
-This is the open bounds question flagged in [TACKLING.md](TACKLING.md) §10:
-`kPlAvgTacklingBallControlDiffChance` has 8 entries and is indexed by a *difference*
-of two attribute averages. If attributes reach 12, that difference can exceed 7 and
-the table is read out of bounds. **Resolve this before implementing any
-attribute-indexed table**, and check every such table's length against the real
-range.
+The original text, for the record: *"[HEADING.md](HEADING.md) §6 establishes this
+from the 13-entry `kPlayerHeaderSpeedIncrease` table, indexed by the raw attribute
+with no clamp — so `heading` reaches at least 12. Since attributes are single bytes
+with no packing, nothing structural limits them to 0–7."*
+
+The structural argument was sound but the premise was not. Attributes *are* single
+bytes in `PlayerInfo`, so nothing limits them **there** — but they are unpacked into
+those bytes from packed nibbles by a routine that clamps
+([amiga/PLAYERS.md](amiga/PLAYERS.md) §3), so the reachable range is 0–7 regardless
+of the storage width.
+
+Consequently the bounds worry in [TACKLING.md](TACKLING.md) §10 does not arise:
+`kPlAvgTacklingBallControlDiffChance` is indexed by a difference of two 0–7 averages,
+maximum 7, and eight entries is exactly right.
 
 ### A documented original bug
 
@@ -422,19 +440,37 @@ written by the binary with no known meaning.
 - Tactics are 10 roles × 35 grid cells. ✓
 - `TeamGame` is 1704 bytes, confirmed independently by the highlight file format. ✓
 
+**Resolved by the Amiga oracle** (see §11):
+
+- ~~**The real attribute range.**~~ **0–7**, masked and clamped on load. Every
+  eight-entry table in the corpus is correctly sized.
+- ~~`TeamTactics::ballOutOfPlayTactics`.~~ It is byte `$171` of the record and holds
+  the index of **another tactic** to use at restarts — tactics carry their own
+  set-piece variant rather than the engine computing one ([AI.md](AI.md) §10).
+- ~~`shotChanceTable` (+24) — who fills it.~~ Partially: the Amiga's counterpart at
+  the same offset is a pointer to a 60-byte per-side tuning block, selected by
+  `UpdateTeamOfs24Table` (asm:35548), which uses a **different block for
+  goalkeepers**. Contents still largely unmapped on both sides.
+- ~~`Sprite` +24 (`frameDelay`).~~ Confirmed as the frame-cycle reload, and the
+  Amiga gives its writer: it is computed from `speed` inside the simulation
+  ([MOVEMENT.md](MOVEMENT.md) §13).
+
 **Open:**
 
-- **The real attribute range.** The single highest-value item here — it invalidates
-  or validates every attribute-indexed table in the other documents.
-  [LEGACY.md](LEGACY.md) §9 should be reconciled against `PlayerInfo`.
 - `TeamGame::unknownTail[686]` — 40 % of the squad struct is unmapped.
 - `TeamStatsData` — pointed to at `TeamGeneralInfo +14`, layout not read.
   [SIMULATION.md](SIMULATION.md) §7 covers the statistics behaviourally.
-- The ~36 bytes of unnamed `Sprite` / `TeamGeneralInfo` fields in §8.
+- The remaining unnamed `Sprite` / `TeamGeneralInfo` fields in §8. The Amiga
+  independently finds most of the same gaps, which is itself informative — they are
+  genuinely unread rather than merely un-transcribed.
 - `PlayerPosition` enum values beyond `kSubstituted`.
-- `TeamTactics::unkTable[10]` and `ballOutOfPlayTactics`.
+- `TeamTactics::unkTable[10]` — bounded to bytes `$167`–`$170` of the record, still
+  unexplained on both oracles.
 - Whether `saveSprite` (+72) relates to replay capture.
-- `shotChanceTable` (+24) contents and who fills it.
+- **`Sprite` +96 and +106.** Both offsets are confirmed to exist and to be
+  meaningful, but the two oracles read them differently — see §11 and
+  [TACKLING.md](TACKLING.md) §12. These are the only two places in the whole struct
+  map where the readings conflict.
 
 ---
 
@@ -457,8 +493,154 @@ written by the binary with no known meaning.
 - **Name the unknowns explicitly in our structs too.** If we carry a field forward
   because the reference has one, call it `unknown_field_3E` and comment where it is
   written. Silently dropping it is fine; silently renaming it to a guess is not.
-- **Resolve the attribute range first** (§5) and size every attribute table to the
-  real range with an explicit bounds policy — clamp, assert, or reproduce the
-  overrun — chosen deliberately and recorded.
+- **Model attributes as 0–7 internally** and offset only at the presentation
+  boundary (§5, §11). Every table in the engine is eight entries wide; anything else
+  means reindexing all of them.
 - **Treat the assembly as authoritative** whenever the two references disagree, and
-  add a note to this document when a new discrepancy is found.
+  add a note to this document when a new discrepancy is found. With the Amiga
+  disassembly available, a third vote is usually cheap — use it before recording a
+  discrepancy as unresolvable.
+- **Do not port the label names.** Name our fields after what the code does with
+  them — `velocity` not `shooting`, `x` not `xFraction`. Both oracles carry
+  mislabelled fields, and every one of them is a trap someone inherited by copying
+  a name instead of a behaviour (§11).
+
+---
+
+## 11. Amiga cross-check
+
+A third independent reconstruction — [amiga/STATE.md](amiga/STATE.md), from the
+Amiga original's IDA `struc` blocks at asm:1–305, with every offset checked against
+a real access site.
+
+### `Sprite`: every offset in §2 confirmed
+
+| Field | §2 | Amiga | |
+|---|---|---|---|
+| `playerState` | 12 | $0C | ✓ |
+| `playerDownTimer` | 13 | $0D | ✓ |
+| `frameIndicesTable` | 18 | $12 | ✓ |
+| `frameIndex` | 22 | $16 | ✓ |
+| `frameDelay` | 24 | $18 | ✓ (reload, set from speed) |
+| `cycleFramesTimer` | 26 | $1A | ✓ |
+| `x` / `y` / `z` | 30 / 34 / 38 | $1E / $22 / $26 | ✓ 16.16 |
+| `direction` | 42 | $2A | ✓ |
+| `speed` | 44 | $2C | ✓ |
+| `deltaX` / `Y` / `Z` | 46 / 50 / 54 | $2E / $32 / $36 | ✓ |
+| `destX` / `destY` | 58 / 60 | $3A / $3C | ✓ whole units |
+| `imageIndex` | 70 | $46 | ✓ (−1 hides) |
+| `ballDistance` | 74 | $4A | ✓ squared |
+| `fullDirection` | 82 | $52 | ✓ 0–255 |
+| `heading` | 98 | $62 | ✓ header-in-progress marker |
+| `cards` | 102 | $66 | ✓ |
+| `injuryLevel` | 104 | $68 | ✓ |
+| `sentAway` | 108 | $6C | ✓ |
+| **Total size** | **110** | **$6E = 110** | ✓ |
+
+Two things this settles:
+
+- **`Sprite.h`'s `unk009` at +98 really is `heading`.** §4's preference for the
+  assembly name is confirmed by a third source.
+- **The port's position layout is right where IDA's raw struct is wrong.** The Amiga
+  `struc` declares `x` at $1C and `xFraction` at $1E, i.e. it believed each
+  coordinate is an integer word followed by a fraction word. The code disagrees —
+  `UpdateBall` does a **longword** add into $1E, and the boundary tests compare $1E
+  against pixel values like 53 and 618. So $1E *is* X as 16.16, exactly as §2 has it.
+  IDA's `x`/`y`/`z` labels sit one word early and are not the coordinate at all.
+  Anyone reading the Amiga listing directly must read `Sprite.xFraction` as "X".
+  Delta fields are *not* skewed.
+
+  A corollary worth keeping: the ground-versus-air friction test reads the **integer
+  height**, so friction flips the instant the ball leaves the turf, not at some
+  fractional threshold ([BALL.md](BALL.md) §3).
+
+### §4's disagreement, settled
+
+§4 records offsets 44 and 56 as one field with two names apiece and declines to
+choose. The Amiga has both, and they are different fields with different jobs:
+
+| Offset | Amiga name | Amiga meaning |
+|---|---|---|
+| 44 | `currentDirection` | **Joystick octant this frame**; −1 = neutral |
+| 56 | `field_38` | **The direction the ball was kicked in** — the axis curl is measured against |
+
+That matches §3's own gloss on +44 ("live input; −1 = nothing held") and
+[MOVEMENT.md](MOVEMENT.md) §3.1, and it makes +56 the *kick* direction — which is
+what both of §4's names for it are groping at. It also means
+[AFTERTOUCH.md](AFTERTOUCH.md) §2 has these two rows swapped; see
+[AFTERTOUCH.md](AFTERTOUCH.md) §11.
+
+Beware one further name collision: on the Amiga, `controlledPlDirection` is IDA's
+label for the *fraction word of `Sprite.deltaZ`*, an unrelated field in an unrelated
+struct. The name travels; the meaning does not.
+
+### `TeamGeneralInfo`: confirmed, with several `?` filled in
+
+Size is $90 = **144** on the Amiga against §3's 145 — the port's extra byte is the
+`secondaryFire` at +144, which has no Amiga counterpart.
+
+Offsets confirmed: `opponentsTeam` 0, `playerNumber` 4, `inGameTeamPtr` 10,
+`spritesTable` 20, `tactics` 28, `updatePlayerIndex` 30, `controlledPlayerSprite`
+32, `passToPlayerPtr` 36, `playerHasBall` 40, `allowedDirections` 42, the whole
+proximity/height band run at 61–68, `goalkeeperSavedCommentTimer` 76,
+`goalkeeperDivingRight/Left` 80/82, `goaliePlayingOrOut` 86, `passingBall` 88,
+`passingToPlayer` 90, `playerSwitchTimer` 92, `ballInPlay` 94, `ballOutOfPlay` 96,
+`passKickTimer` 102, `ballCanBeControlled` 110, `spinTimer` 118, `leftSpin` 120,
+`rightSpin` 122, the `longPass` pair 124/126, `passInProgress` 128, `AI_timer` 130,
+`wonTheBallTimer` 138, `goalkeeperPlaying` 140, `resetControls` 142.
+
+Three of §8's unknowns get meanings:
+
+| §8 unknown | Amiga | Meaning |
+|---|---|---|
+| `unkBallTimer` (+108) | `unkBallTimer` $6C | **Dribble touch counter** — [CONTROL.md](CONTROL.md) §8 |
+| `shotChanceTable` (+24) | `teamPlOfs24Table` $18 | Pointer to a 60-byte per-side tuning block; different for keepers |
+| `Sprite` +24 | `field_18` | Frame-cycle reload, written from `speed` |
+
+And one field gets a much sharper reading: `goalkeeperSavedCommentTimer` (+76) is a
+**±5 latch** — set to +5 on a save and −5 on a goal — which is how the rest of the
+engine learns what just happened, and what [AFTERTOUCH.md](AFTERTOUCH.md) §3's first
+guard reads.
+
+### `PlayerInfo`: the attribute block confirmed, and one name corrected
+
+§5's order at +27…+33 — Passing, Shooting, Heading, Tackling, Control, Speed,
+Finishing — is exactly the Amiga's `PlayerGame` $45…$4B, and the Amiga derives it
+from read sites rather than from labels: $46 for the long-shot bonus, $4B for the
+close-range bonus, $47 for headers, $48 and $49 averaged for the tackle contest,
+$49 for the dribble, $4A for running speed, $4C for the keeper's save odds. Seven
+independent constraints landing on SWOS's own published **P V H T C S F** ordering.
+
+The correction: **+28 `shooting` is Velocity, not a second finishing stat.** §5's
+parenthetical already says so; the Amiga makes it a named finding because IDA's own
+label at that offset is `shooting` and it is the easiest error in the corpus to
+inherit. Name our field `velocity`.
+
+`goalieSkill` (+34), `injuriesBitfield` (+35) and `halfPlayed` (+36) all confirm at
+$4C, $4D and $4E. Two further findings about them:
+
+- **The goalkeeper rating is derived, not stored** — `(value + 3) / 7` plus 1 or 2
+  plus two competition-context ±1 adjustments, clamped 0–7. Non-keepers get 0. A
+  keeper has no stored goalkeeping attribute at all; his transfer value *is* the
+  rating ([amiga/PLAYERS.md](amiga/PLAYERS.md) §3).
+- **The stored nibbles are not the final ratings.** They pass through a
+  value-derived transform on unpack, so tuning fitted against raw extracted team
+  data will carry a systematic bias. Model the transform explicitly, even as a stub.
+
+### One more coordinate fact worth having here
+
+The Amiga records the pitch geometry as pixel constants checked against access
+sites, which is the cleanest statement of it anywhere in the corpus:
+
+| Quantity | Value |
+|---|---|
+| Playable X / Y | 81 … 591 (width 510) / 129 … 770 (height 641) |
+| Centre | (336, 449) |
+| Goal mouth X | 302 … 366 inner, 296 … 372 including posts |
+| Crossbar Z | 15 … 19 |
+| Dead-ball barrier | X 53 … 618, Y 100 … 799 |
+| Player movement clamp | X 81 … 590, Y 129 … 769 |
+
+Y increases downward; the left team defends the top goal. And `speed` is in units of
+**~1/512 px/frame**, derived from the Q15→Q7 shift in the trig routine — so 512 ≈ 1
+px/frame, which is the conversion every constant in the corpus needs.

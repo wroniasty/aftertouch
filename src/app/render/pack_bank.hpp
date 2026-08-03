@@ -116,6 +116,9 @@ inline bool BindPitch(const LoadedPack& pack, PitchTiles& out) {
     out.grid_w     = pack.header.aux_w;
     out.grid_h     = pack.header.aux_h;
     out.indices    = assets::Aux(pack.bytes, pack.header);
+    out.palette_rgba  = {};
+    out.palette_count = 0;
+    out.from_original = pack.header.source == assets::SourceKind::kOriginal;
     if (pack.header.entry_count == 0) return false;
     const assets::Entry e0 = assets::EntryAt(pack.bytes, 0);
     out.tile_w = e0.width;
@@ -123,6 +126,18 @@ inline bool BindPitch(const LoadedPack& pack, PitchTiles& out) {
     out._pack  = &pack;
     out._tile_fn = &PitchTileFn;
     return out.indices.size() == size_t(out.grid_w) * out.grid_h * 2;
+}
+
+// Palette pack: one entry whose pixels are count×4 RGBA bytes (width = count*4, h = 1).
+inline bool BindPitchPalette(const LoadedPack& pal, PitchTiles& pitch) {
+    if (!pal.ok || pal.header.kind != assets::Kind::kPalette) return false;
+    if (pal.header.entry_count < 1) return false;
+    const assets::Entry e = assets::EntryAt(pal.bytes, 0);
+    const auto px = assets::Pixels(pal.bytes, pal.header, e);
+    if (px.size() < 4 || (px.size() % 4) != 0) return false;
+    pitch.palette_rgba  = px;
+    pitch.palette_count = static_cast<uint32_t>(px.size() / 4);
+    return true;
 }
 
 } // namespace at::render

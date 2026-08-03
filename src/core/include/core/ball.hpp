@@ -22,6 +22,8 @@ inline constexpr int16_t kBarrierMaxY = 799;
 
 inline constexpr int16_t kGoalAttemptLeft  = 240;
 inline constexpr int16_t kGoalAttemptRight = 431;
+// Posts sit at the mouth edges; wider attempt band is for shot stats only.
+inline constexpr int16_t kGoalPostHalfWidth = 8;
 inline constexpr int32_t kBounceSettleThreshold = 0xA000;
 
 // Pitch-type tables (BALL.md §9). Index 0..6 = Frozen..Hard. B3 selects Normal.
@@ -122,9 +124,10 @@ inline void ApplyDeadBallBarrier(MatchState& s, const Vec3& saved) {
     ball.pos = saved;
 }
 
-inline void ResetBothSpinTimers(MatchState& s) {
-    s.sides[0].control.spin_timer = -1;
-    s.sides[1].control.spin_timer = -1;
+// [CANDIDATE: amiga asm:21841] — B13 / R4. Deterministic goalmouth jitter.
+// Range −256 … +240, step 16. Pure function of the frame counter: no RNG.
+inline constexpr int16_t GoalmouthScatter(uint32_t tick) {
+    return static_cast<int16_t>(static_cast<int32_t>((tick & 31u) << 4) - 256);
 }
 
 // Simplified bar/post (BALL.md §6). Net / own-goal subdivisions deferred.
@@ -140,24 +143,58 @@ inline void ApplyGoalFrame(MatchState& s, Vec3& saved) {
     const bool in_attempt =
         x >= kGoalAttemptLeft && x <= kGoalAttemptRight;
 
+    const bool near_left_post =
+        x >= static_cast<int16_t>(kGoalMouthMinX - kGoalPostHalfWidth) &&
+        x < kGoalMouthMinX;
+    const bool near_right_post =
+        x > kGoalMouthMaxX &&
+        x <= static_cast<int16_t>(kGoalMouthMaxX + kGoalPostHalfWidth);
+
     bool frame_hit = false;
+    bool bar_hit = false;
     if (in_mouth && ball.pos.z.Whole() > 15) {
         // Bar: reverse vertical, restore z, nudge y clear.
         ball.delta.z = -ball.delta.z;
         ball.pos.z = saved.z;
         saved.y += Fix::FromInt(1);
         frame_hit = true;
-    } else if (in_attempt && !in_mouth) {
-        // Post: mirror dest Y, kill aftertouch.
+        bar_hit = true;
+    } else if ((near_left_post || near_right_post) && in_attempt) {
+        // Post: thin strips at the uprights only — clear byline exits OOP.
         ReverseDestY(ball);
         ResetBothSpinTimers(s);
         frame_hit = true;
     }
     if (!frame_hit) return;
 
-    ball.speed = static_cast<int16_t>(ball.speed - (ball.speed >> 2));
+    // B13 / R5 #3 — the crossbar. Reading A converges bar and post on a scaled
+    // speed >> 2. The Amiga *sets* a flat 512 and pushes the aim point 1000 out
+    // of goal, so the bar does not reflect at all. Set-versus-scaled is a
+    // behavioural difference, not rounding: it is the flat bounce-out everyone
+    // remembers. See profile.hpp.
+    if (bar_hit && kCrossbarSetsSpeed) {
+        ball.speed = kCrossbarSetSpeed;
+        const int16_t out = (y < kCentreSpotY)
+                                ? static_cast<int16_t>(ball.dest_y + kCrossbarPushOut)
+                                : static_cast<int16_t>(ball.dest_y - kCrossbarPushOut);
+        ball.dest_y = out;
+    } else {
+        ball.speed = static_cast<int16_t>(ball.speed - (ball.speed >> 2));
+    }
     ball.pos.x = saved.x;
     ball.pos.y = saved.y;
+
+    // B13 / R4 — the goalmouth scatter (amiga asm:21841), which nothing in the
+    // DOS-port documents mentioned. A lateral jitter on the rebound derived from
+    // the frame counter: −256 … +240 in steps of 16. It looks random and is
+    // fully determined by *when* the contact happened, so goalmouth scrambles
+    // stay unpredictable without an RNG dependency reaching the physics — which
+    // is the whole point, and why this can land without moving the RNG stream.
+    const int16_t scatter = GoalmouthScatter(s.tick);
+    if (in_mouth)
+        ball.dest_x = static_cast<int16_t>(ball.dest_x + scatter);
+    else
+        ball.dest_y = static_cast<int16_t>(ball.dest_y + scatter);
 }
 
 inline Fix ShlFix(Fix v, int n) {
@@ -258,14 +295,43 @@ inline void LatchGoalAttempt(MatchState& s) {
     if (sx >= kGoalMouthMinX && sx <= kGoalMouthMaxX) ++st.on_target;
 }
 
+// Celebration length (B13 / R4). Two match-stream draws is the sourced part;
+// these bounds are ours.
+inline constexpr int16_t kCelebrationBaseTicks   = 50;
+inline constexpr int16_t kCelebrationMarginTicks = 8;
+
+// SIMULATION.md §5.3 / amiga SETPIECES §1 — the near-miss test, all four
+// constants confirmed on both sides.
+inline constexpr int16_t kNearMissMinSpeed = 768;
+inline constexpr int16_t kNearMissMinX     = 290;
+inline constexpr int16_t kNearMissMaxX     = 381;
+inline constexpr int16_t kNearMissMaxZ     = 25;
+
+inline bool IsNearMiss(const MatchState& s, int16_t x, int16_t y, int16_t z) {
+    const bool past_byline = y < kPlayableMinY || y > kPlayableMaxY;
+    return past_byline && s.ball.speed >= kNearMissMinSpeed &&
+           x >= kNearMissMinX && x <= kNearMissMaxX &&
+           static_cast<int>(z) + 2 <= static_cast<int>(kNearMissMaxZ);
+}
+
 inline void WireOutOfPlay(MatchState& s) {
     if (GetPl(s) != GameStatePl::InProgress) return;
 
     const int16_t x = s.ball.pos.x.Whole();
     const int16_t y = s.ball.pos.y.Whole();
     const int16_t z = s.ball.pos.z.Whole();
-    auto result = ClassifyBallOutOfPlay(x, y, z, s.clock.last_team_played);
+    auto result = ClassifyBallOutOfPlay(x, y, z, s.clock.last_team_played,
+                                        s.globals.team_playing_up);
     if (!result.has_value()) return;
+
+    // B13 / R4 — the near miss (AMIGA_CHANGES §2.3). SIMULATION.md §5.3 recorded
+    // this exact test — byline, speed >= 768, x in [290, 381], z + 2 <= 25 — as
+    // having "no gameplay effect, just commentary". It also **clears the
+    // referee-whistle flag** on the Amiga, so a shot that comes back off the
+    // frame and goes out is not whistled as an ordinary out-of-play. Three of the
+    // four constants matched already; the fourth consequence was not noticed.
+    s.globals.whistle_suppressed =
+        IsNearMiss(s, x, y, z) ? uint8_t{1} : uint8_t{0};
 
     s.globals.foul_x = x;
     s.globals.foul_y = y;
@@ -273,10 +339,7 @@ inline void WireOutOfPlay(MatchState& s) {
     CompleteOopRestart(s, result->state, result->is_goal);
 
     if (result->is_goal) {
-        const uint8_t scorer =
-            (y < kPlayableMinY)
-                ? s.globals.team_playing_up
-                : static_cast<uint8_t>(3 - s.globals.team_playing_up);
+        const uint8_t scorer = ScorerForGoalY(s, y);
         if (scorer == 1 || scorer == 2) {
             const int side = static_cast<int>(scorer) - 1;
             ++s.score[static_cast<size_t>(side)];
@@ -286,6 +349,26 @@ inline void WireOutOfPlay(MatchState& s) {
             AppendChronicle(s, MatchEventKind::Goal, static_cast<uint8_t>(side),
                             sq);
         }
+        // B13 / R4 — the celebration draw (AMIGA_CHANGES §4.1).
+        //
+        // The sourced part is the **shape**: a goal consumes exactly two draws
+        // from the match stream, decided inside the simulation from the score
+        // context. That is not a presentation detail — skipping it desynchronises
+        // every roll after the first goal, which is precisely the class of
+        // divergence that stays invisible until a trace runs long enough to
+        // score. It is why this lands in its own re-pin.
+        //
+        // The length *formula* below is ours, not measured: two draws and a
+        // score-context term, bounded to something a camera can sit through.
+        const int32_t d0 = static_cast<int32_t>(s.gameplay_rng.Draw());
+        const int32_t d1 = static_cast<int32_t>(s.gameplay_rng.Draw());
+        const int32_t margin =
+            static_cast<int32_t>(s.score[0]) - static_cast<int32_t>(s.score[1]);
+        const int32_t spread = (margin < 0 ? -margin : margin) & 3;
+        s.globals.show_fans_counter =
+            static_cast<int16_t>(kCelebrationBaseTicks + ((d0 + d1) & 63) +
+                                 spread * kCelebrationMarginTicks);
+
         s.phase = MatchPhase::Goal;
         return;
     }

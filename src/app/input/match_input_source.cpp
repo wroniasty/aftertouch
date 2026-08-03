@@ -21,14 +21,16 @@ void MatchInputSource::Init() {
     SDL_free(ids);
 }
 
+// P1 moves on the arrow keys. WASD used to be a second binding; it was dropped
+// so the letter keys stay free for debug hotkeys (C1b).
 uint32_t MatchInputSource::PollKeyboardP1() const {
     const bool* keys = SDL_GetKeyboardState(nullptr);
     uint32_t f = 0;
-    if (keys[SDL_SCANCODE_UP] || keys[SDL_SCANCODE_W]) f |= kGameEventUp;
-    if (keys[SDL_SCANCODE_DOWN] || keys[SDL_SCANCODE_S]) f |= kGameEventDown;
-    if (keys[SDL_SCANCODE_LEFT] || keys[SDL_SCANCODE_A]) f |= kGameEventLeft;
-    if (keys[SDL_SCANCODE_RIGHT] || keys[SDL_SCANCODE_D]) f |= kGameEventRight;
-    if (keys[SDL_SCANCODE_SPACE] || keys[SDL_SCANCODE_Z]) f |= kGameEventKick;
+    if (keys[SDL_SCANCODE_UP]) f |= kGameEventUp;
+    if (keys[SDL_SCANCODE_DOWN]) f |= kGameEventDown;
+    if (keys[SDL_SCANCODE_LEFT]) f |= kGameEventLeft;
+    if (keys[SDL_SCANCODE_RIGHT]) f |= kGameEventRight;
+    if (keys[SDL_SCANCODE_SPACE]) f |= kGameEventKick;
     return f;
 }
 
@@ -61,6 +63,15 @@ uint32_t MatchInputSource::PollGamepad(SDL_Gamepad* pad) const {
     if (ax < -kDead) f |= kGameEventLeft;
     if (ax > kDead) f |= kGameEventRight;
     return f;
+}
+
+void MatchInputSource::PollNeutral(MatchInput& out) {
+    // Devices are ignored (a dialog has the keyboard) but the engine still gets
+    // one input per tick, and the edge filter sees the release.
+    prev_p1_ = FilterOverlappedEvents(0, prev_p1_);
+    prev_p2_ = FilterOverlappedEvents(0, prev_p2_);
+    out.p1 = EventsToPlayerInput(prev_p1_);
+    out.p2 = EventsToPlayerInput(prev_p2_);
 }
 
 void MatchInputSource::Poll(MatchInput& out) {

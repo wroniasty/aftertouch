@@ -20,13 +20,24 @@ inline constexpr int32_t kHeaderLowJumpHeightRaw   = 0x20000;
 inline constexpr int32_t kHeaderHighJumpHeightRaw  = 0x24000;
 inline constexpr int8_t  kStaticHeaderDownTime     = 20;
 
-// Indexed by Heading attr 0..12 (zero at 7). Clamp index to 12.
-inline constexpr std::array<int16_t, 13> kPlayerHeaderSpeedIncrease = {
-    -336, -288, -240, -192, -144, -96, -48, 0, 513, 1027, 1541, 2055, 2569};
+// [CANDIDATE: amiga playerStrongHeaderSpeedIncrease, asm:34852]
+// Indexed by Heading attr 0..7. Corrected from 13 entries to 8 by B13 / R2:
+// the five values that followed in the DOS listing (513, 1027, 1541, 2055, 2569)
+// belong to the next data item — their near-constant ~514 stride is an offset
+// block, not a tuning curve. See AMIGA_CHANGES.md §2.2.
+//
+// The shape matters as much as the values: Heading is a **pure handicap ramp with
+// no upside**. 7 gets nothing, everything below is a penalty, and the whole range
+// is a 13 % cut on a jump header's launch speed. HEADING.md §6 called this the
+// strongest attribute effect in the game on the strength of the phantom entries;
+// it is in fact the weakest.
+inline constexpr std::array<int16_t, 8> kPlayerHeaderSpeedIncrease = {
+    -336, -288, -240, -192, -144, -96, -48, 0};
 
-inline int HeadingAttrIndex(uint8_t attr) {
-    return attr > 12 ? 12 : static_cast<int>(attr);
-}
+static_assert(kPlayerHeaderSpeedIncrease.size() == kAttrTableSize,
+              "attribute-indexed table must have one entry per attribute value");
+static_assert(kPlayerHeaderSpeedIncrease.back() == 0,
+              "Heading is a handicap ramp: the top attribute is the zero point");
 
 inline uint8_t SquadHeadingAttr(const MatchState& s, const Entity& e) {
     const int side_i = e.team_number - 1;
@@ -165,7 +176,7 @@ inline void ApplyHeaderContact(MatchState& s, int side, int slot) {
             sp = sp - (sp >> 4); // 93.75 %
         }
 
-        const int hidx = HeadingAttrIndex(SquadHeadingAttr(s, pl));
+        const int hidx = AttrIndex0to7(SquadHeadingAttr(s, pl));
         sp += kPlayerHeaderSpeedIncrease[static_cast<size_t>(hidx)];
         if (sp < 0) sp = 0;
         if (sp > 32767) sp = 32767;
@@ -183,7 +194,7 @@ inline void ApplyHeaderContact(MatchState& s, int side, int slot) {
         ball.dest_y = static_cast<int16_t>(ball.pos.y.Whole() + off.y);
         ball.direction = static_cast<int16_t>(aim);
         int32_t sp = kStaticHeaderBallSpeed;
-        const int hidx = HeadingAttrIndex(SquadHeadingAttr(s, pl));
+        const int hidx = AttrIndex0to7(SquadHeadingAttr(s, pl));
         sp += kPlayerHeaderSpeedIncrease[static_cast<size_t>(hidx)];
         if (sp < 0) sp = 0;
         if (sp > 32767) sp = 32767;

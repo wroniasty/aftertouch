@@ -44,8 +44,8 @@ TEST_CASE("attribute gap clamps at 7") {
     s.players[0].player_ordinal = 2;
     s.players[11].team_number = 2;
     s.players[11].player_ordinal = 2;
-    s.sides[0].squad[1].attrs.tackling = 15;
-    s.sides[0].squad[1].attrs.ball_control = 15;
+    s.sides[0].squad[1].attrs.tackling = kAttrMax;      // was 15 (B13 / R2)
+    s.sides[0].squad[1].attrs.ball_control = kAttrMax;
     s.sides[1].squad[1].attrs.tackling = 0;
     s.sides[1].squad[1].attrs.ball_control = 0;
     s.ball.pos.x = Fix::FromInt(336);

@@ -14,7 +14,10 @@ TEST_CASE("in-progress speed table by attribute") {
     CHECK(LookupPlayerSpeed(s, 0, false) == 928);
     s.sides[0].squad[0].attrs.speed = 7;
     CHECK(LookupPlayerSpeed(s, 0, false) == 1250);
-    s.sides[0].squad[0].attrs.speed = 15; // clamp to 7
+    // Defence in depth: an out-of-range attribute cannot reach a table index.
+    // A5's validator makes this unreachable through the data path (B13 / R2);
+    // a hand-built state like this one is exactly why the clamp stays.
+    s.sides[0].squad[0].attrs.speed = 15;
     CHECK(LookupPlayerSpeed(s, 0, false) == 1250);
 }
 

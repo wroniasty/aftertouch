@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -8,6 +9,7 @@
 
 #include "core/match_engine.hpp"
 #include "core/match_input.hpp"
+#include "core/shooting.hpp"
 #include "core/trace.hpp"
 
 // Trace generate + diff for A3/A6. Links at_core only — no SDL.
@@ -15,12 +17,28 @@
 
 namespace at::tracekit {
 
+using SetupFn = void (*)(MatchState&);
+
+// Named starting states. A scenario that has to reach a mechanic by playing its
+// way there mostly records the walk — shot_curl scripted fire+NE for 35 ticks
+// while every home player was ~200 units from the ball (B6a / Track I). The id
+// is serialised into the input log so the log stays the whole scenario: a
+// committed .atin plus this enum reproduces the trace, with nothing implicit.
+enum class ScenarioSetup : uint8_t {
+    None     = 0,
+    ShotCurl = 1,
+};
+
 struct Scenario {
     uint32_t                 seed       = 1;
     uint8_t                  first_team = 0;
     trace::Profile           profile    = trace::Profile::kAmiga;
     std::vector<MatchInput>  inputs;
+    ScenarioSetup            setup      = ScenarioSetup::None;
 };
+
+// Defined below, once the setup bodies exist.
+inline SetupFn SetupFnFor(ScenarioSetup id);
 
 using MutateFn = void (*)(MatchState&);
 
@@ -30,6 +48,12 @@ inline bool Generate(const Scenario& scenario, std::vector<uint8_t>& out,
 
     MatchEngine engine;
     engine.Reset(scenario.seed);
+    if (const SetupFn setup = SetupFnFor(scenario.setup)) {
+        engine.Step(MatchInput{}); // bootstrap: kickoff placement exists after this
+        MatchState s = engine.State();
+        setup(s);
+        engine.LoadState(s);
+    }
 
     out.clear();
     out.resize(trace::kHeaderSize + scenario.inputs.size() * trace::kRecordSize);
@@ -287,11 +311,13 @@ inline bool WriteFile(const char* path, std::span<const uint8_t> bytes) {
 // ---------------------------------------------------------------------------
 
 inline constexpr uint32_t kAtinMagic = 0x4E495441u; // "ATIN" LE
-inline constexpr uint16_t kAtinVersion = 1;
+inline constexpr size_t kAtinHeaderSize = 20;
+// 2: adds the scenario setup id (B6a).
+inline constexpr uint16_t kAtinVersion = 2;
 
 inline bool SerializeInputLog(const Scenario& s, std::vector<uint8_t>& out) {
     out.clear();
-    out.resize(16 + s.inputs.size() * 4);
+    out.resize(kAtinHeaderSize + s.inputs.size() * 4);
     size_t at = 0;
     auto put_u8 = [&](uint8_t v) { out[at++] = v; };
     auto put_u16 = [&](uint16_t v) {
@@ -307,6 +333,10 @@ inline bool SerializeInputLog(const Scenario& s, std::vector<uint8_t>& out) {
     put_u8(s.first_team);
     put_u32(s.seed);
     put_u32(static_cast<uint32_t>(s.inputs.size()));
+    put_u8(static_cast<uint8_t>(s.setup));
+    put_u8(0);
+    put_u8(0);
+    put_u8(0);
     for (const MatchInput& in : s.inputs) {
         put_u8(static_cast<uint8_t>(static_cast<int8_t>(in.p1.dir)));
         put_u8(static_cast<uint8_t>(in.p1.fire ? 1 : 0));
@@ -317,7 +347,7 @@ inline bool SerializeInputLog(const Scenario& s, std::vector<uint8_t>& out) {
 }
 
 inline bool DeserializeInputLog(std::span<const uint8_t> in, Scenario& s) {
-    if (in.size() < 16) return false;
+    if (in.size() < kAtinHeaderSize) return false;
     size_t at = 0;
     auto get_u8 = [&]() { return in[at++]; };
     auto get_u16 = [&]() {
@@ -336,7 +366,9 @@ inline bool DeserializeInputLog(std::span<const uint8_t> in, Scenario& s) {
     s.first_team = get_u8();
     s.seed       = get_u32();
     const uint32_t count = get_u32();
-    if (in.size() < 16 + static_cast<size_t>(count) * 4) return false;
+    s.setup = static_cast<ScenarioSetup>(get_u8());
+    get_u8(); get_u8(); get_u8(); // pad
+    if (in.size() < kAtinHeaderSize + static_cast<size_t>(count) * 4) return false;
     s.inputs.resize(count);
     for (uint32_t i = 0; i < count; ++i) {
         s.inputs[i].p1.dir  = static_cast<Dir>(static_cast<int8_t>(get_u8()));
@@ -389,20 +421,239 @@ inline Scenario KickoffScenario(uint32_t ticks = 100) {
 
 // Eight-way jog + fire hold — exercises the aftertouch-shaped input channel before
 // B6 exists. Seed distinct from kickoff.
+// A3 §2.7's aftertouch entry: a human striker on the ball holds fire into a
+// shot, then curls it. The stick must stay on the kick direction until the
+// strike — pushing off-axis during the charge only re-aims the kick.
+inline void ShotCurlSetup(MatchState& s) {
+    s.sides[0].control.player_number = 1;
+    s.sides[0].control.controlled_slot = 9;
+    s.sides[0].control.ball_can_be_controlled = 1;
+    s.globals.team_playing_up = 2; // side 0 attacks the top goal
+    s.sides[0].squad[9].attrs.speed = 5;
+    s.sides[0].squad[9].attrs.shooting = 4;
+    s.sides[0].squad[9].attrs.finishing = 4;
+    s.sides[0].squad[9].attrs.ball_control = 4;
+    s.players[9].pos.x = Fix::FromInt(336);
+    s.players[9].pos.y = Fix::FromInt(560);
+    s.players[9].dest_x = 336;
+    s.players[9].dest_y = 560;
+    s.ball.pos.x = s.players[9].pos.x;
+    s.ball.pos.y = s.players[9].pos.y;
+    s.ball.pos.z = Fix{};
+    s.ball.delta = {};
+    s.ball.speed = 0;
+    s.ball.dest_x = 336;
+    s.ball.dest_y = 560;
+    s.sides[0].control.player_has_ball = 1;
+    s.sides[0].control.pl_very_close_to_ball = 1;
+    s.sides[0].control.pl_close_to_ball = 1;
+    s.sides[0].control.ball_out_of_play = 0;
+    s.clock.last_team_played = 1;
+    s.globals.game_state_pl = static_cast<uint8_t>(GameStatePl::InProgress);
+    s.clock.stoppage_event_timer = 0;
+    s.phase = MatchPhase::InPlay;
+}
+
+inline SetupFn SetupFnFor(ScenarioSetup id) {
+    switch (id) {
+    case ScenarioSetup::ShotCurl: return &ShotCurlSetup;
+    case ScenarioSetup::None:     break;
+    }
+    return nullptr;
+}
+
 inline Scenario ShotCurlScenario(uint32_t ticks = 80) {
     Scenario s;
     s.seed       = 0xA5A50002u;
     s.first_team = 0;
+    s.setup      = ScenarioSetup::ShotCurl;
     s.inputs.assign(ticks, MatchInput{});
     for (uint32_t i = 0; i < ticks; ++i) {
-        if (i >= 5 && i < 40) {
-            s.inputs[i].p1.dir  = Dir::NE;
+        if (i < 5) continue;                       // settle
+        if (i < 5 + static_cast<uint32_t>(kFireHoldThreshold) + 2) {
+            s.inputs[i].p1.dir  = Dir::N;          // charge on the kick line
             s.inputs[i].p1.fire = true;
-        } else if (i >= 40 && i < 60) {
-            s.inputs[i].p1.dir = Dir::E;
+        } else if (i < 45) {
+            s.inputs[i].p1.dir = Dir::NE;          // curl clockwise
         }
     }
     return s;
+}
+
+// ---------------------------------------------------------------------------
+// Kick probe — derived control telemetry (B6a / Track I)
+//
+// Pure observation: feed it the post-Step state and the input that produced it
+// and it reports what the control layer actually did — how long the button was
+// held, how many ticks passed between the press and the ball leaving the foot,
+// where in the window the curl latched, and what the vertical sample decided.
+// The point is that the next "shooting feels off" report arrives as a tick
+// count instead of an adjective. Used by the C1a HUD and the transcript, and
+// tested without a window.
+// ---------------------------------------------------------------------------
+
+enum class VerticalDecision : int8_t { None = 0, Drive = -1, Lob = 1 };
+
+struct KickTelemetry {
+    int32_t press_tick     = -1; // tick the button went down
+    int32_t strike_tick    = -1; // tick the ball left the foot
+    int16_t press_to_strike = -1; // ticks between the two
+    int16_t hold_ticks     = 0;  // fire_counter at the strike
+    bool    was_pass       = false;
+    int16_t latch_spin     = -1; // spin_timer sample the curl latched on
+    int8_t  latch_side     = 0;  // +1 clockwise of the kick, -1 counter
+    VerticalDecision vertical = VerticalDecision::None;
+    bool    lofted_pass    = false;
+    // Where the strike was aimed. Without these a transcript can say a pass
+    // happened but not whether it went anywhere near a team-mate, which is the
+    // question that actually gets asked.
+    int8_t  kick_dir       = -1; // octant the strike was launched on
+    int8_t  pass_target    = -1; // pitch slot, or -1 for a shot / clearance
+    int16_t aim_x          = 0;  // ball dest at the strike (ray-extended aim)
+    int16_t aim_y          = 0;
+    bool    window_closed  = false; // curl/vertical fields are final
+};
+
+class KickProbe {
+public:
+    void Observe(const MatchState& st, const MatchInput& in) {
+        for (int side = 0; side < 2; ++side) {
+            const TeamControl& tc = st.sides[static_cast<size_t>(side)].control;
+            const PlayerInput& pin = (side == 0) ? in.p1 : in.p2;
+            State& s = side_[static_cast<size_t>(side)];
+            KickTelemetry& t = live_[static_cast<size_t>(side)];
+
+            if (pin.fire && !s.prev_fire)
+                s.press_tick = static_cast<int32_t>(st.tick);
+            s.prev_fire = pin.fire;
+
+            const bool opened =
+                s.prev_spin == kSpinInactive && tc.spin_timer != kSpinInactive;
+            if (opened) {
+                t = KickTelemetry{};
+                t.press_tick  = s.press_tick;
+                t.strike_tick = static_cast<int32_t>(st.tick);
+                t.hold_ticks  = tc.fire_counter;
+                t.was_pass    = tc.pass_in_progress != 0;
+                t.press_to_strike =
+                    (s.press_tick >= 0)
+                        ? static_cast<int16_t>(t.strike_tick - s.press_tick)
+                        : int16_t{-1};
+                t.kick_dir    = static_cast<int8_t>(tc.controlled_pl_direction);
+                t.pass_target = t.was_pass ? tc.pass_to_slot : int8_t{-1};
+                t.aim_x       = st.ball.dest_x;
+                t.aim_y       = st.ball.dest_y;
+                s.have = true;
+            }
+            // The window closing is what makes the curl and vertical fields
+            // final; reporting them at the strike tick only ever prints "none".
+            if (s.have && s.prev_spin != kSpinInactive &&
+                tc.spin_timer == kSpinInactive && !t.window_closed)
+                t.window_closed = true;
+            if (s.have && t.latch_spin < 0 && (tc.spin_cw || tc.spin_ccw)) {
+                t.latch_spin = static_cast<int16_t>(
+                    tc.spin_timer > 0 ? tc.spin_timer - 1 : 0);
+                t.latch_side = tc.spin_cw ? int8_t{1} : int8_t{-1};
+            }
+            // The vertical sample runs on the tick spin_timer leaves the sample
+            // value; the directions it read are still in the record.
+            if (s.have && s.prev_spin == kAftertouchVerticalTick &&
+                tc.spin_timer == kAftertouchVerticalTick + 1) {
+                const int joy = tc.current_allowed_direction;
+                int ref = t.was_pass ? st.ball.direction : tc.controlled_pl_direction;
+                if (ref < 0 || ref > 7) ref = tc.controlled_pl_direction;
+                if (joy >= 0 && joy <= 7 && ref >= 0 && ref <= 7) {
+                    const int diff = (joy - ref) & 7;
+                    if (t.was_pass) {
+                        t.lofted_pass = (diff >= 3 && diff <= 5);
+                        t.vertical = t.lofted_pass ? VerticalDecision::Lob
+                                                   : VerticalDecision::None;
+                    } else if (diff == 2 || diff == 6) {
+                        t.vertical = VerticalDecision::Drive;
+                    } else if (diff >= 3 && diff <= 5) {
+                        t.vertical = VerticalDecision::Lob;
+                    }
+                }
+            }
+            s.prev_spin = tc.spin_timer;
+        }
+    }
+
+    // Telemetry of the most recent strike by a side, or nullptr if none yet.
+    const KickTelemetry* Last(int side) const {
+        const size_t i = static_cast<size_t>(side);
+        return side_[i].have ? &live_[i] : nullptr;
+    }
+
+    void Reset() { *this = KickProbe{}; }
+
+private:
+    struct State {
+        int32_t press_tick = -1;
+        int16_t prev_spin  = kSpinInactive;
+        bool    prev_fire  = false;
+        bool    have       = false;
+    };
+    std::array<State, 2>         side_{};
+    std::array<KickTelemetry, 2> live_{};
+};
+
+inline const char* VerticalToken(VerticalDecision v) {
+    switch (v) {
+    case VerticalDecision::Drive: return "drive";
+    case VerticalDecision::Lob:   return "lob";
+    case VerticalDecision::None:  break;
+    }
+    return "flat";
+}
+
+inline const char* OctantToken(int oct) {
+    static const char* kNames[8] = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"};
+    return (oct >= 0 && oct < 8) ? kNames[oct] : "?";
+}
+
+// One line per strike, emitted on the strike tick.
+//
+// **Both** transcript writers call this. B6a added the kick line to the tracegen
+// transcript only, while the app's live MATCH/SANDBOX capture used its own
+// recorder and never emitted one — so the traces you actually play and report
+// were the ones missing the telemetry. One formatter, two callers, so that
+// cannot recur.
+//
+// `target` and `aim` are the part worth having: a transcript that says a pass
+// happened but not where it was aimed cannot answer "the pass direction is off".
+inline std::string FormatKickLine(int side, const KickTelemetry& k) {
+    char b[224];
+    const char* kind = k.was_pass ? "pass" : "shot";
+    if (k.was_pass && k.pass_target >= 0)
+        std::snprintf(b, sizeof b,
+                      "\n  kick: side=%d %s dir=%s press->strike=%d hold=%d"
+                      " target=slot%d aim=(%d,%d)",
+                      side + 1, kind, OctantToken(k.kick_dir),
+                      static_cast<int>(k.press_to_strike),
+                      static_cast<int>(k.hold_ticks),
+                      static_cast<int>(k.pass_target), k.aim_x, k.aim_y);
+    else
+        std::snprintf(b, sizeof b,
+                      "\n  kick: side=%d %s dir=%s press->strike=%d hold=%d"
+                      " target=none aim=(%d,%d)",
+                      side + 1, kind, OctantToken(k.kick_dir),
+                      static_cast<int>(k.press_to_strike),
+                      static_cast<int>(k.hold_ticks), k.aim_x, k.aim_y);
+    return b;
+}
+
+// Emitted when the aftertouch window closes, because that is the first tick the
+// curl and vertical fields are final. Printing them at the strike tick — which
+// is what a single-line format would have to do — reports "none" every time.
+inline std::string FormatCurlLine(int side, const KickTelemetry& k) {
+    char b[160];
+    const char* latch = k.latch_side > 0 ? "cw" : (k.latch_side < 0 ? "ccw" : "none");
+    std::snprintf(b, sizeof b,
+                  "\n  curl: side=%d latch=%s@%d vert=%s%s",
+                  side + 1, latch, static_cast<int>(k.latch_spin),
+                  VerticalToken(k.vertical), k.lofted_pass ? " lofted" : "");
+    return b;
 }
 
 // ---------------------------------------------------------------------------
@@ -436,6 +687,7 @@ inline const char* PhaseToken(MatchPhase p) {
     case MatchPhase::Goal:     return "Goal";
     case MatchPhase::HalfTime: return "HalfTime";
     case MatchPhase::FullTime: return "FullTime";
+    case MatchPhase::SetPiece: return "SetPiece";
     }
     return "?";
 }
@@ -582,6 +834,9 @@ inline bool WriteSparseTranscript(std::span<const uint8_t> attr, std::string& ou
     MatchInput prev_in{};
     bool have_prev = false;
     uint8_t prev_chron = 0;
+    KickProbe probe;
+    std::array<int32_t, 2> reported{{-1, -1}};
+    std::array<int32_t, 2> curl_reported{{-1, -1}};
 
     for (uint32_t i = 0; i < hdr.record_count; ++i) {
         const size_t off =
@@ -592,7 +847,23 @@ inline bool WriteSparseTranscript(std::span<const uint8_t> attr, std::string& ou
                                       in))
             return false;
 
-        bool interesting = !have_prev;
+        probe.Observe(st, in);
+        bool struck = false;
+        bool curled = false;
+        for (int side = 0; side < 2; ++side) {
+            const KickTelemetry* k = probe.Last(side);
+            if (k && k->strike_tick != reported[static_cast<size_t>(side)]) {
+                reported[static_cast<size_t>(side)] = k->strike_tick;
+                struck = true;
+            }
+            if (k && k->window_closed &&
+                k->strike_tick != curl_reported[static_cast<size_t>(side)]) {
+                curl_reported[static_cast<size_t>(side)] = k->strike_tick;
+                curled = true;
+            }
+        }
+
+        bool interesting = !have_prev || struck || curled;
         if (have_prev) {
             if (!InputsEqual(in, prev_in)) interesting = true;
             if (st.sides[0].control.controlled_slot !=
@@ -613,6 +884,15 @@ inline bool WriteSparseTranscript(std::span<const uint8_t> attr, std::string& ou
 
         if (interesting) {
             out += FormatTickLine(st, in);
+            for (int side = 0; side < 2; ++side) {
+                const KickTelemetry* k = probe.Last(side);
+                if (!k) continue;
+                if (struck && k->strike_tick == static_cast<int32_t>(st.tick))
+                    out += FormatKickLine(side, *k);
+                if (curled && k->window_closed &&
+                    k->strike_tick == curl_reported[static_cast<size_t>(side)])
+                    out += FormatCurlLine(side, *k);
+            }
             if (st.chronicle.count > prev_chron) {
                 for (uint8_t e = prev_chron; e < st.chronicle.count; ++e) {
                     const MatchEvent& ev =

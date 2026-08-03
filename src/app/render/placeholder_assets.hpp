@@ -11,13 +11,16 @@ public:
     ~PlaceholderAssets() override;
     static std::unique_ptr<PlaceholderAssets> Open(const char* dir);
 
-    const SpriteSheet* Player(TeamSlot slot, Dir dir, int frame) const override;
-    const SpriteSheet* Ball() const override;
+    const SpriteSheet* Player(ShirtGeometry geo, int frame) const override;
+    const SpriteSheet* Keeper(int frame) const override;
+    const SpriteSheet* Ball(int frame) const override;
+    const SpriteSheet* BallShadow() const override;
+    const SpriteSheet* Number(int shirt_number) const override;
     const PitchTiles*  Pitch(PitchType type) const override;
+    std::span<const uint8_t> KitColourOrdinals() const override;
     bool               IsPlaceholder() const override { return true; }
 
     int PlayerFrames() const;
-    const SpriteSheet* PlayerSheet(TeamSlot slot, int frame) const;
 
 private:
     PlaceholderAssets();

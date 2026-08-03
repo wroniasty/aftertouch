@@ -33,9 +33,14 @@ inline constexpr std::array<int16_t, 8> kComputerTacklingDownTime = {
 inline constexpr std::array<int16_t, 8> kPlAvgTacklingBallControlDiffChance = {
     16, 17, 18, 19, 20, 21, 22, 23};
 
-inline int TacklingAttrIndex(uint8_t attr) {
-    return attr > 7 ? 7 : static_cast<int>(attr);
-}
+// B13 / R2 invariant: one entry per attribute value. The diff-chance table is
+// indexed by a skill *difference*, whose reachable range is also 0–7.
+static_assert(kPlayerTacklingDownTime.size() == kAttrTableSize);
+static_assert(kComputerTacklingDownTime.size() == kAttrTableSize);
+static_assert(kPlAvgTacklingBallControlDiffChance.size() == kAttrTableSize);
+
+// Named for the call site; the range lives in match_state.hpp (B13 / R2).
+inline int TacklingAttrIndex(uint8_t attr) { return AttrIndex0to7(attr); }
 
 inline uint8_t SquadTacklingAttr(const MatchState& s, const Entity& e) {
     const int side_i = e.team_number - 1;
@@ -117,7 +122,11 @@ inline void BeginSlide(MatchState& s, int side) {
 }
 
 inline bool WantContestEntry(const TeamControl& tc) {
-    return tc.fire_this_frame != 0 || tc.quick_fire != 0 || tc.normal_fire != 0;
+    // Press edge only. normal_fire is a level while the button is held (B6a /
+    // S3), so including it here would re-enter a slide on every tick of a hold
+    // — the CPU raises fire_this_frame alongside normal_fire, so its tackles
+    // are unaffected.
+    return tc.fire_this_frame != 0 || tc.quick_fire != 0;
 }
 
 // Returns true if a slide or header was started.
@@ -149,7 +158,13 @@ inline bool TryBeginSlideOrHeader(MatchState& s, int side) {
 
 inline void SetPlayerDowntimeAfterTackle(MatchState& s, Entity& e) {
     const int idx = TacklingAttrIndex(SquadTacklingAttr(s, e));
-    if (e.tackling_timer == -1)
+    // B13 / R5 #4 — whose recovery the flat-3 table is. Reading A: a CPU-versus-
+    // human fairness asymmetry. The Amiga: the *deflecting* tackle's recovery,
+    // for anybody. Both readings select the same table here because our -1
+    // sentinel is set by early fire release, which is exactly the ledger's
+    // hypothesis for what marks a deflection — so this switch currently changes
+    // nothing and exists to make the question testable. See profile.hpp.
+    if (e.tackling_timer == -1 || (kFlat3IsDeflection && e.tackle_state == kTackleStateTouched))
         e.player_down_timer =
             static_cast<int8_t>(kComputerTacklingDownTime[static_cast<size_t>(idx)]);
     else
@@ -182,7 +197,11 @@ inline int ResolvePossessionContest(MatchState& s, int slot_a, int slot_b) {
     int diff = avg_a - avg_b;
     const int favoured = (diff >= 0) ? (a.team_number - 1) : (b.team_number - 1);
     if (diff < 0) diff = -diff;
-    if (diff > 7) diff = 7; // conscious clamp — attrs 0–15, table has 8 entries
+    // Defence only. With attributes in 0–7 (B13 / R2) the average of two of them
+    // is in 0–7, so the difference cannot exceed 7 and this cannot fire on data
+    // that came through A5's validator. The table's eight entries are exactly the
+    // eight reachable differences — it was never undersized.
+    if (diff > static_cast<int>(kAttrMax)) diff = static_cast<int>(kAttrMax);
 
     const uint8_t roll = static_cast<uint8_t>(s.resolve_rng.Draw() & 31);
     const int16_t thr =
@@ -285,8 +304,11 @@ inline void PlayerTacklingTestFoul(MatchState& s, int side, int slot) {
         foul = true;
     else if (tackler.tackle_state == kTackleStateGood)
         foul = false; // dangerous-play comment only
-    else if (OctantDelta(tackler.direction, victim.direction) <= 1)
-        foul = true;
+    else {
+        // B13 / R5 #1 — exact complements; see profile.hpp.
+        const int delta = OctantDelta(tackler.direction, victim.direction);
+        foul = kFoulFromBehindInverted ? (delta > 1) : (delta <= 1);
+    }
 
     if (foul) {
         s.sides[static_cast<size_t>(side)].stats.fouls_conceded += 1;

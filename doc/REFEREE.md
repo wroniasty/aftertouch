@@ -335,6 +335,23 @@ sprite, which matters for the `updateReferee` gate in §3.
   assignment cleared. ✓
 - Both sprites carry `teamNumber = 3` so replays render them. ✓
 
+> **Amiga cross-check.** The [amiga/](amiga/) set deliberately does not cover
+> presentation, so this document has no counterpart there. Three findings from the
+> Amiga side touch it anyway:
+>
+> - **The referee has a whistle flag that gameplay code clears.** A shot that comes
+>   back off the woodwork and out of play sets the flag off, so the ball leaving the
+>   pitch after frame contact is not whistled as an ordinary out-of-play
+>   ([SETPIECES.md](SETPIECES.md) §12). That is a decision the referee *sprite*
+>   presumably reacts to, and it is a lead on the `activateReferee()` trigger below.
+> - **Cards are the only random element in the foul system.** The foul decision
+>   itself is entirely positional; the card escalation runs in a separate routine
+>   gated on a global and on `Rand() & 3` ([TACKLING.md](TACKLING.md) §12). Which
+>   offence yields yellow versus red, and whether a second yellow is tracked, is open
+>   on both oracles — the same gap as the second and third bullets below.
+> - **Keepers cannot be fouled at all**, so the referee never appears for a
+>   challenge on a goalkeeper. Confirmed independently by both readings.
+
 **Open (measurement targets, [LEGACY.md](LEGACY.md) §15):**
 
 - **Who calls `activateReferee()`, and when.** The trigger — presumably from the
@@ -342,7 +359,7 @@ sprite, which matters for the `updateReferee` gate in §3.
   particular, whether the referee appears for every foul or only for card-worthy
   ones.
 - **What sets `whichCard` and `bookedPlayer`**, and how `kSecondYellowCard` is
-  distinguished from a straight red at the decision site.
+  distinguished from a straight red at the decision site. Open on both oracles.
 - **`kRefWaitingPlayer` → `kRefAboutToGiveCard`** — the transition out of waiting is
   not in `updateRefereeState()`. Something external advances it; presumably it waits
   for the booked player to arrive, which would explain the state's name.

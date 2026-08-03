@@ -21,6 +21,13 @@ other contest, is [HEADING.md](HEADING.md).
 > original assembly, not just the decompiled C++. Read to understand the design;
 > write our own code.
 
+> **Second oracle.** [amiga/CONTEST.md](amiga/CONTEST.md) traces the same system
+> through the Amiga original (`CalculateIfPlayerWinsBall` asm:35144, the foul test
+> `sub_113122` asm:39106). Every table in §9 is confirmed, and the attribute-range
+> worry in §10 turns out to be unfounded. But the **foul-from-behind test in §5 comes
+> out the opposite way round**, and the flat-3 recovery table in §6 has a completely
+> different explanation. See §12.
+
 ---
 
 ## 0. One-paragraph version
@@ -394,26 +401,36 @@ is not established here.
 - `fasterTackle` and the Amiga/PC downtime split are dead stores, confirmed against
   the original assembly. ✓
 
+**Resolved by the Amiga oracle** (see §12):
+
+- ~~`kPlAvgTacklingBallControlDiffChance` has 8 entries but the gap could exceed 7 if
+  attributes range 0–15.~~ **No bug.** Attributes are masked to `7` per nibble and
+  clamped to 7 explicitly on load ([amiga/PLAYERS.md](amiga/PLAYERS.md) §1), so the
+  maximum gap is exactly 7 and every eight-entry table in the engine is the right
+  size. §11's "fix or reproduce the table bounds" instruction is moot.
+- ~~What `wonTheBallTimer = 12` gates.~~ A **possession lock**: while it runs, the
+  contest cannot re-run. It is also loaded with 8 from the dribble touch-count
+  overflow ([CONTROL.md](CONTROL.md) §8). Whether the two reload values are
+  distinguished by any consumer is still open on both oracles.
+- ~~Running tackles.~~ Confirmed: there is no separate standing-tackle path. All
+  dispossession goes through the same routine, which despite its name runs on every
+  controlled contact — it is the dribble touch *and* the contest.
+
 **Open (measurement targets, [LEGACY.md](LEGACY.md) §15):**
 
 - **Slide reach.** How close the tackler must get for `playersTackledTheBallStrong`
-  to fire — the call site condition was not traced, only the routine.
+  to fire — the call site condition was not traced, only the routine. The Amiga
+  enters the contest from `player_tackling` (asm:44014) and is no more specific.
 - **Where the possession contest is invoked from.** [player.cpp:360](../reference/swos-port/src/game/player.cpp#L360)
   is inside a larger routine whose entry conditions are unread. Does it run on every
   simultaneous arrival, or only in specific states?
-- `kPlAvgTacklingBallControlDiffChance` has **8 entries**, but the difference of two
-  averages could exceed 7 if attributes range 0–15. Confirm the attribute range
-  ([LEGACY.md](LEGACY.md) §9) — if it is 0–15, this table is read out of bounds for
-  large gaps, which would be a real bug worth reproducing or fixing deliberately.
-- **What `wonTheBallTimer = 12` gates.** Set here, consumed elsewhere, unexplained.
 - Whether the CPU's 100 %-vs-125 % ball speed is a separate code path or a flag;
-  only the routine's comment asserts it.
-- The `kComputerTacklingDownTime` selection condition: is `tacklingTimer == -1`
-  genuinely also the CPU's normal state, or does the CPU reach recovery some other
-  way? If not, the flat-3 table is *only* reachable by human early release.
-- Running tackles (non-slide challenges) — this document covers the `kTackling`
-  slide. Whether SWOS has a distinct standing-tackle path, or whether all
-  dispossession runs through §8, is not established.
+  only the routine's comment asserts it. The Amiga's deflected-tackle path uses
+  **150 %** in a similar shape (§12), which suggests at least three multipliers
+  exist and we have not separated the cases cleanly.
+- **What marks a tackle as a *deflection*.** The Amiga gates its whole alternate
+  path on `Sprite` +$6A = −1 and cannot say what writes it; §3's early-release
+  mechanic is a strong candidate (§12). Settling this settles §6 as well.
 - Ball deflection off a player who is **not** tackling ([LEGACY.md](LEGACY.md) §15
   "deflection rules on intercepted balls") remains open; see [BALL.md](BALL.md) §10.
 
@@ -438,8 +455,118 @@ is not established here.
 - **Do not reproduce the dead stores** (§2), but *do* decide consciously what
   `fasterTackle` should mean — the attribute exists in the data and currently does
   nothing. Reviving it is a balance change, so make it deliberately or not at all.
-- **Fix or reproduce the table bounds** in §8 once the attribute range is known.
-  Silently clamping is the worst option: it changes behaviour without recording that
-  it did.
+- **Model attributes as 0–7.** The table bounds worry in §8 is answered: eight
+  entries is exactly right, the maximum gap is 7, and nothing is read out of range.
 - **Run the whole contest inside the deterministic tick**, with the RNG drawn from
   the match stream ([AI.md](AI.md) §6), so replays stay bit-exact.
+- **Charge the recovery cost.** Tackling is balanced by its downside, not by the
+  odds — the odds barely move. If our tackles are cheap the whole risk model breaks.
+- **Keep fouls deterministic.** Only the card draw touches the RNG (§12). Resisting
+  the urge to randomise the foul itself keeps replays and traces stable and matches
+  the original.
+
+---
+
+## 12. Amiga cross-check
+
+Traced independently through the Amiga original — [amiga/CONTEST.md](amiga/CONTEST.md).
+
+### Confirmed, exactly
+
+| §9 constant | Amiga symbol | Line | Agreement |
+|---|---|---|---|
+| `kPlAvgTacklingBallControlDiffChance` | same name | asm:34774 | 16 … 23, out of 32 |
+| `kPlayerTacklingDownTime` | `unk_1106B2` | asm:34747 | 30 … 9 by Tackling |
+| `kPlayerTacklingSpeed` 1792 | `playerTacklingSpeed` | asm:30706 | $700 |
+| `wonTheBallTimer` 12 | `wonBallTimer` | asm:35194 | 12 frames |
+| Contest RNG | — | asm:35187 | `Rand() & 31` |
+| Foul proximity `≤ 32` squared | — | asm:39118 | ≈ 5.7 units |
+| Victim-was-playing-ball gate `≤ 800` | — | asm:39190 | ≈ 28 units |
+| Pitch-proper box | — | — | X 81 … 590, Y 129 … 769 |
+| Ground friction 96 | `playerGroundConstant` | asm:30584 | same |
+
+The whole of §8 is confirmed structurally: the average of **Tackling and Ball
+Control** on *both* sides, the absolute difference, one `Rand() & 31` against the
+table, and a symmetric read — the table is "probability the better player wins",
+applied to whichever side is favoured. An even contest is **exactly 50/50** and the
+maximum edge is **71.9 %**, which the Amiga document calls the same design statement
+§8 does. A slide launched at 1792 against friction 96 covers about 17 units and
+stops in 19 frames.
+
+The foul chain also matches §5 step for step: proximity gate, keeper exemption
+(keepers cannot be fouled, ever — the tackler is merely slowed), the in-pitch
+requirement, the tackler cut to a quarter speed, the `ballDistance` gate, and a
+final facing comparison. Both readings agree the foul decision contains **no
+randomness at all** — the only `Rand` in the whole system is the card draw
+(`Rand() & 3`, asm:36100, roughly one in four and only when a difficulty flag
+permits).
+
+### Two disagreements, and they matter
+
+1. **The from-behind test is inverted.** §5 fouls when
+   `|tackler.direction − victim.direction| ≤ 1` — the two players facing within one
+   octant of each other. The Amiga (asm:39178) fouls when the two octants differ by
+   **more than one**, and describes the intent plainly: *"a tackle from behind or
+   across is a foul; one from alongside going the same way is not."* These are exact
+   complements. The Amiga reading is the one that matches football and the one that
+   makes §5's own commentary ("occasionally absurd") unnecessary — a tackle where
+   both players are running the same way is precisely the *clean* case. **This is
+   the highest-value single item in this document to settle**, because it inverts
+   the refereeing of every challenge.
+
+2. **The flat-3 recovery table is the *deflecting tackle's*, not the CPU's.** §6
+   selects `kComputerTacklingDownTime` on `tacklingTimer == -1` and notes the name
+   says "computer" while the condition is reachable by human input. The Amiga has
+   the identical eight-entry table of 3s (`unk_1106C2`, asm:34763) and reaches it
+   from `sub_110CD8` on the **deflected-tackle** path — a tackle flagged as a
+   deflection rather than a possession attempt, marked by `Sprite` +$6A = −1. Such
+   a tackle skips the skill contest entirely, always disturbs the ball, never wins
+   it outright, and costs a flat 3 frames for anybody.
+
+   **These two readings fit together.** The Amiga cannot say what sets +$6A to −1
+   and flags it as player-facing and important; this document has a mechanism —
+   releasing fire early — that produces exactly a `−1` sentinel and selects exactly
+   the flat-3 table. If they are the same thing, then §3's "early release" *is* the
+   deflecting tackle: you commit to disturbing the ball rather than winning it, you
+   forfeit the contest, and you get up almost immediately. That would make it a
+   deliberate risk/reward choice rather than the exploit §6 suspects. **Worth one
+   targeted trace; it changes how the mechanic should be presented to players.**
+
+### The deflecting tackle, in full
+
+Since it is absent from this document entirely (`sub_110C04`, asm:34920 region):
+
+- picks an octant one step from the carrier's, toward the tackler;
+- aims the ball there;
+- halves the carrier's speed, then gives the ball `carrier.speed × 3/2`;
+- sets a contact-quality flag to 1, or to **2** if the tackler was more than ~5 units
+  from the ball, marking how clean the deflection was;
+- runs **no skill contest**.
+
+Compare §4: the ball leaves at `tackler.speed × 5/4` and the *tackler* is halved.
+Same shape, different subject and different multiplier. Either they are two distinct
+paths that both documents partially saw, or one of the two transcriptions has the
+players swapped.
+
+### `tackleState` and the deflection flag are the same offset
+
+§1 puts `Sprite.tackleState` at **+96** with values 0 / 1 / `TS_GOOD_TACKLE` (2).
+The Amiga has `field_60` — offset $60 = **96** — also 0 / 1 / 2, also a
+contact-quality marker, but read on the **ball** sprite and meaning "how clean was
+the deflection" rather than "did the tackler touch the ball". One offset, two
+semantics, and the foul test consumes it in both readings. Resolve this alongside
+disagreement (1); they are the same few instructions.
+
+### New from the Amiga
+
+- **The penalty-area test.** After a foul is awarded, if the victim is inside
+  X 193 … 478 and Y ≤ 216 (top box) or Y ≥ 682 (bottom box), it becomes a **penalty**
+  (asm:39197–39232). That box is 285 × 87 units, centred on the goal, and it is
+  wider than the Finishing zone the shot classifier uses
+  ([SHOOTING.md](SHOOTING.md) §9). Two different "boxes" exist; do not merge them.
+- **The free-kick taker is picked by position, not role** — the fouled side's
+  outfielders are scanned for whoever is nearest the opponent's goal
+  (asm:39248–39292).
+- **Cards escalate through a separate routine** (`sub_111388`, asm:36096) gated on
+  a global *and* on `Rand() & 3`. Which offence yields yellow versus red, and
+  whether a second yellow is tracked, is open on both oracles.

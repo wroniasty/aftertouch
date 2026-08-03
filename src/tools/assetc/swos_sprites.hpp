@@ -37,8 +37,26 @@ struct SwosSprite {
     std::vector<uint8_t> indices;
 };
 
+// The three shirt geometries, one per team file. Measured, not inferred: team1/2/3.dat
+// differ in all 101 frames, and reading the shirt indices off a front standing frame
+// says which is which -- team1 alternates 10/11 across the torso, team2 is uniform per
+// row, team3 puts 11 on the sleeve columns. This resolves A4 §6.5, and it also settles
+// the other half of that question: the THREE BLOCKS INSIDE one team file are
+// byte-identical, so they are the three faces (a palette difference we keep in the
+// index domain), not three geometries. We therefore import 101 frames per file, not 303.
+enum class ShirtGeometryFile : int {
+    kVerticalStripes   = 0,   // team1.dat -- also serves plain, stripes == shirt colour
+    kHorizontalStripes = 1,   // team2.dat
+    kColouredSleeves   = 2,   // team3.dat
+};
+
+inline constexpr int kShirtGeometryCount = 3;
+inline constexpr int kPlayerBankFrames   = 101;
+
 struct SwosSpriteSet {
     std::vector<SwosSprite>  sprites;      // by sprite.dat ordinal
+    // 101 frames per geometry, indexed by ShirtGeometryFile.
+    std::array<std::vector<SwosSprite>, kShirtGeometryCount> geometries{};
     std::array<Rgba, 256>    palette{};    // pal.256, expanded to 8 bits per channel
     std::string              assembly;     // which .dat files formed the joint block
     int                      ordinal_matches = 0;

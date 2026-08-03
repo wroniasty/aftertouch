@@ -45,7 +45,7 @@ MatchState MakeBusyState() {
     s.sides[0].sheet.name[0] = 'A';
     s.sides[0].control.spin_timer = 12;
     s.sides[0].control.quick_fire = 1;
-    s.sides[0].squad[0].attrs.finishing = 11;
+    s.sides[0].squad[0].attrs.finishing = 6; // was 11 — above the 0–7 range (B13 / R2)
     s.sides[0].squad[0].full_name[0] = 'Z';
     s.sides[0].tactics.out_of_play = 3;
     s.sides[0].tactics.cells[0][0] = 0xAB;

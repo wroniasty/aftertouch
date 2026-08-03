@@ -62,8 +62,13 @@ While Stopped on a restart state, taking side may strike without `player_has_bal
 when near spot — only after tap/hold classification (`quick_fire` / `normal_fire`),
 not on button-down. Throw-ins and free kicks: tap → pass to `pass_to`; hold →
 aim-table kick/throw. After ~2 s idle a teammate approaches ahead of facing as
-pass target (`long_pass` countdown). Success → InProgress + StartingGame, flags
-0xFF, hide_ball clear.
+pass target (`long_pass` countdown). Off-ball squad freezes while Stopped (except
+shortfall approach). Success → InProgress + StartingGame, flags 0xFF, hide_ball
+clear.
+
+**Post-goal:** `PlacePlayersAtKickoff` + `BeginRestart(StartingGame)` for the
+conceding side (kickoff turn flags); take via `ApplyRestartTake` — no 50-tick
+auto-scramble.
 
 ### 2.4 Cards / injury / ref
 
@@ -94,7 +99,8 @@ scripted HashState stable under Amiga profile.
 ## 6. Follow-ups (play-feel)
 
 - **Aim-only on take states:** `ApplyControlledDestination` stops translation while
-  `IsRestartTakeState`; stick updates facing / turn flags only. Fire still takes.
+  `IsActiveRestartTake` (Stopped + take state, including kickoff `StartingGame`);
+  stick updates facing / turn flags only. Fire still takes.
 - **`BeginRestart`:** `StopAllPlayers` + both sides `ball_out_of_play = 1`.
 - **`PickRestartTaker`:** shared human+CPU selection in `set_pieces.hpp` (GK only
   for `KeeperHoldsBall`; else nearest outfield / best finishing on pen).

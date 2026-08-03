@@ -366,7 +366,17 @@ committing the thing being imported.
 
 ## 6. Open questions
 
-**6.5 — Which shirt geometry is which bank?**
+**6.5 — Which shirt geometry is which bank? — RESOLVED (C3)**
+The geometry is the team FILE, and the three blocks inside one file are the three faces,
+not three geometries: `slotA_blk0/1/2` are byte-identical across all 101 frames, while
+`team1/2/3.dat` differ in every frame. Reading the shirt indices off a front standing
+frame names them — team1 alternates 10/11 across the torso (vertical stripes), team2 is
+uniform per row (horizontal stripes), team3 puts 11 on the sleeve columns (coloured
+sleeves), which is what `docs/SWOS/sprites.txt` said and not what
+`convertGameSprites.py`'s block names say. `assetc` now imports 101 frames per geometry
+as `kit_vstripe` / `kit_hstripe` / `kit_sleeves`, and faces cost nothing because they
+are a palette. The original question, for the record:
+
 A team file holds 303 sprites — three distinct 101-frame blocks, verified not to be
 copies — and the game loads two team files, one per playing side.
 `docs/SWOS/sprites.txt` says the three *files* are the geometries (team1 vertical
@@ -380,7 +390,12 @@ script's constants encode the configuration of whichever extraction produced its
 Until then `assetc` names banks by slot and block only, so no run's configuration is
 baked into a filename.
 
-**6.1 — Where do faithful pixels come from? — RESOLVED**
+**6.1 — Where do faithful pixels come from? — RESOLVED, pitches included**
+The sprites came from an original installation, and so does the pitch: `pitchN.blk` is
+863 chunky 8-bit 16×16 tiles at 256 bytes each and `pitchN.dat` is the 42×55 matrix of
+BYTE OFFSETS into it. The reference tree's resampled pitch art is no longer used by
+anything. Original text follows:
+
 The answer is an original installation, and one is now in use. `assetc --swos-dir`
 reads `sprite.dat`, `charset.dat`, `score.dat`, the team files, `goal1.dat` and
 `bench.dat` directly: 4 bits per pixel, planar, against `pal.256`. No resampling, no
@@ -412,7 +427,15 @@ run. Nothing else in A4 is blocked by this — the format, the writer, the guard
 placeholder path and the runtime `IAssetSource` are all independent of source fidelity,
 which is why they were built first.
 
-**6.2 — Why is `pitch<n>.txt` 55 rows when `kPitchHeight` is 53?**
+**6.2 — Why is the matrix 55 rows when `kPitchHeight` is 53? — RESOLVED (C3)**
+Two different artefacts. The reference tree's matrix has a leading pad row; **the
+original's does not** — rows 0 and 54 carry the stands, and mapping matrix row to world
+row 1:1 puts the engine's own constants exactly on the painted markings (centre spot
+`(336,449)`, touchlines `x = 81 / 590`, goal lines `y = 129 / 769`). The drawable world
+is therefore 672×880, which CAMERA.md §9 confirms independently: its hard camera limit
+`kCameraMaxY = 680` is `880 − 200`. `PitchTiles::from_original` picks the mapping per
+pack from its `SourceKind`. Original text follows:
+
 The matrix parses as 42 × 55; `compileAssets.py` declares 42 × 53; 42 × 53 × 16 is
 exactly the 672 × 848 world space every other document agrees on. So two rows are
 surplus, and the plausible readings — off-pitch padding for the camera's overscan, or a

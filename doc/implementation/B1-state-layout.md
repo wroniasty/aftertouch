@@ -57,7 +57,7 @@ full state round-trips field-by-field. No gameplay lands here.
 |---|---|
 | `Entity` | Physics, animation cursor, per-entity flags (cards, tackle, heading contact) |
 | `TeamControl` | Intent, seven-field input surface, proximity bands, aftertouch timers, AI scratch |
-| `SquadPlayer` | Identity, names, 0–15 attrs, shirt/position/face |
+| `SquadPlayer` | Identity, names, 0–7 attrs, shirt/position/face |
 | `TacticsSnapshot` | `out_of_play` + `cells[10][35]` — copy at kickoff so the tick never includes `src/data/` |
 | `MatchGlobals` | Restart/ref/bench/predictor *storage* (values only; machines are later parts) |
 
@@ -85,8 +85,11 @@ part discovers a write site for an omitted byte, add it then with the assembly n
 
 ### 2.4 Attributes
 
-Range **0–15** (A5 / [../DATA.md](../DATA.md) §3). B1 only stores bytes. Table
-overrun policy for attribute-indexed tables remains for B7 / LEGACY.
+Range **0–7** (A5 / [../DATA.md](../DATA.md) §3, corrected by
+[B13](B13-amiga-oracle.md) / R2). B1 only stores bytes. The table-overrun policy this
+section used to defer to B7 / LEGACY is **withdrawn, not deferred**: eight-entry
+attribute tables are correctly sized for an eight-value attribute, so there is no
+overrun to have a policy about. The clamps in the consumers stay as defence.
 
 ### 2.5 ATTR v2
 

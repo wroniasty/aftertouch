@@ -14,6 +14,12 @@ this one is everything up to the instant the ball leaves the foot.
 > treat them as fitting targets for the trace harness per [LEGACY.md](LEGACY.md)
 > §15. Read to understand the design; write our own code.
 
+> **Second oracle.** [amiga/KICKING.md](amiga/KICKING.md) traces the same routines
+> through the Amiga original (`PlayerKickingBall` asm:35033, `DoPass` asm:34859).
+> **Every table in §6 now has values**, the shot-on-goal geometry in §3 is exact
+> rather than approximate, and one of §7's open questions — whether hold duration
+> scales anything — turns out to be *yes, for passes*. See §9.
+
 ---
 
 ## 0. One-paragraph version
@@ -195,17 +201,35 @@ in [AFTERTOUCH.md](AFTERTOUCH.md) §7:
   the area ([LEGACY.md](LEGACY.md) §9). ✓
 - Vertical launch without aftertouch = `kBallKickingDeltaZ` + gravity. ✓
 
+**Resolved by the Amiga oracle** (see §9):
+
+- ~~Whether the Amiga build scaled base power/height by hold duration.~~ **Split
+  answer.** The *kick* does not — `ballKickingSpeed` 2208 and `ballKickingDeltaZ`
+  $14000 are flat for everyone, confirming §2's reading on the build that matters.
+  The *pass* does: `DoPass` selects a launch speed from a ramp $600 … $8AA by hold
+  duration (asm:34680–34691). The note under §2 should be read as settled for kicks
+  and refuted for passes.
+- ~~The actual values in every table above, and the shape of the attribute curves.~~
+  All five recovered; both bonus curves are **linear**, `ballSpeedKicking` in steps
+  of 108 and `ballSpeedFinishing` in steps of 128. See §9.
+- ~~The exact goal-zone thresholds.~~ Exact, in pitch units: Y gates 342 / 556, the
+  Finishing box X 241 … 431 crossed with Y < 204 or ≥ 694.
+- ~~The `getBallDestCoordinatesTable` offsets per game state.~~ All eight tables
+  enumerated in [amiga/SETPIECES.md](amiga/SETPIECES.md) §3 and summarised in
+  [SETPIECES.md](SETPIECES.md).
+
 **Open (measurement targets, [LEGACY.md](LEGACY.md) §15):**
 
-- The tap/hold frame threshold (community ~4) and whether the human classifier
-  scales anything with hold length.
-- Whether the Amiga build scaled base power/height by hold duration at all.
-- The actual values in every table above, and the **shape** of the attribute
-  curves (linear vs not).
-- The exact goal-zone thresholds vs pitch coordinate scale (they are in internal
-  units; confirm the scale first — [LEGACY.md](LEGACY.md) §15 "pitch coordinate
-  scale").
-- The `getBallDestCoordinatesTable` offsets per game state.
+- The tap/hold frame threshold (community ~4). Still unmeasured on both oracles —
+  the Amiga document lists it as open too.
+- The precise mapping from hold frames onto the eight-step pass ramp. The endpoints
+  are known; the thresholds between them were not traced end to end.
+- The pitch coordinate scale in real units, so 241/431 and 204/694 read as metres.
+- Whether **Passing** (`PlayerGameHeader` +69 / Amiga `PlayerGame` $45) is read
+  anywhere in the match engine at all. The Amiga sweep found no reader — `DoPass`
+  targets by pure geometry — which would make Passing career-only. This document's
+  §5 assumes nothing about it either way, and it is directly checkable against the
+  port. See [amiga/PLAYERS.md](amiga/PLAYERS.md) §2.
 
 ---
 
@@ -224,3 +248,105 @@ in [AFTERTOUCH.md](AFTERTOUCH.md) §7:
   per-player `(direction, fire_state)` input, so replays and headless sim stay
   bit-exact.
 - **Fit the tables from traces, tune nothing by feel** ([LEGACY.md](LEGACY.md) §17).
+- **Get the shot-on-goal geometry right before tuning anything else** (§9). It
+  decides which of two very differently-shaped bonus tables applies, and a
+  five-unit error in the box boundary changes which attribute matters for a whole
+  class of shots.
+- **Keep the pass cone and the receiver slow-down together.** Either alone feels
+  broken; the pair is the mechanic ([MOVEMENT.md](MOVEMENT.md) §13).
+
+---
+
+## 9. Amiga cross-check
+
+Traced independently through the Amiga original — [amiga/KICKING.md](amiga/KICKING.md).
+
+### The launch constants
+
+| §6 symbol | Amiga symbol | Line | Value | In units |
+|---|---|---|---|---|
+| `kBallKickingSpeed` | `ballKickingSpeed` | asm:30730 | **2208** | 4.31 px/frame, 216 px/s |
+| `kBallKickingDeltaZ` | `ballKickingDeltaZ` | asm:30729 | **$14000** | 1.25 px/frame, 62.5 px/s |
+
+§2's most important structural claim is confirmed and can be stated more strongly:
+the launch is **flat and attribute-independent**. A weak player and a strong player
+hit a clearance identically; skill enters only through the §3 bonus and through the
+aftertouch the player then applies.
+
+### The two bonus tables
+
+Both are signed offsets **added** to the flat 2208, exactly as §3 describes:
+
+| Attribute value | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
+|---|---|---|---|---|---|---|---|---|
+| `kBallSpeedKicking` — Velocity, long shots (asm:34836) | −384 | −270 | −162 | −54 | +54 | +162 | +270 | +384 |
+| `kBallSpeedFinishing` — Finishing, close range (asm:34844) | −288 | −160 | −32 | +96 | +224 | +352 | +480 | +608 |
+
+| Attribute | Long shot | px/s | Finishing shot | px/s |
+|---|---|---|---|---|
+| 0 | 1824 | 178 | 1920 | 188 |
+| 3 | 2154 | 210 | 2304 | 225 |
+| 7 | 2592 | 253 | 2816 | 275 |
+
+Two properties worth designing around:
+
+- **Velocity is symmetric about the base; Finishing is not.** An average-Velocity
+  player kicks at almost exactly the default. `ballSpeedFinishing` is skewed upward
+  — its centre of mass is around +100 — so close-range shots are systematically
+  harder than long ones at the same attribute value, and a Finishing-7 striker hits
+  the fastest ball in the game.
+- **Finishing has the wider spread**, 896 units across the scale against 768.
+  Finishing matters more, and it matters exactly where you would want it to.
+
+### The shot-on-goal test is pure geometry
+
+No attribute, no RNG. Two steps (asm:35059–35116).
+
+**Is the kicker attacking?**
+
+| Side | Requires ball Y | Requires facing octant |
+|---|---|---|
+| Right team (attacking the top goal) | ≤ 342 | 0, 1 or 7 |
+| Left team (attacking the bottom goal) | ≥ 556 | 3, 4 or 5 |
+
+Fail either and the kick gets **no bonus at all** — a sideways pass out of defence
+is never treated as a shot. Both thresholds sit ~107 units either side of the
+centre line at 449, and they are the **same two thresholds the throw-in split uses**
+([SETPIECES.md](SETPIECES.md)); make them one named constant.
+
+**Which bonus?**
+
+| Ball X | Ball Y | Classification |
+|---|---|---|
+| outside 241 … 431 | any | Long shot → **Velocity** |
+| 241 … 431 | < 204 or ≥ 694 | Finishing shot → **Finishing** |
+| 241 … 431 | 204 … 693 | Long shot → **Velocity** |
+
+So: **inside the box and central, Finishing decides; anywhere else, Velocity does.**
+§3's "inside the penalty area" is right in spirit; the actual region is a 190 × 75
+unit box in front of each goal, and it is narrower than the drawn penalty area
+(which is X 193 … 478 by the foul test — [TACKLING.md](TACKLING.md)).
+
+### Passing, in detail
+
+§5 is one paragraph; the Amiga reading fills it in.
+`GetClosestNonControlledPlayerInDirection` (asm:39859) walks the kicker's own eleven
+sprites and keeps the **nearest** that is not the controlled player, not sent off,
+in `PL_NORMAL`, and within **±16 of 256 — a ±22.5° cone** — of the kicker's facing
+octant. If none qualifies the pass degrades to a plain directional clearance through
+the default offset table.
+
+Pass launch speed is the hold-duration ramp $600 … $8AA, topping out at $700 for the
+no-target case, and pass curl uses the weaker `passingSpinFactor` table
+([AFTERTOUCH.md](AFTERTOUCH.md)). The receiver's half of the mechanic — he *slows*
+to 256 or 512 to let the ball arrive — is in [MOVEMENT.md](MOVEMENT.md) §13.
+
+### One thing to re-check in the port
+
+§2 step 1 records the kick direction into `TeamGeneralInfo.controlledPlDirection`
+(+56). On the Amiga the field aftertouch measures curl against is **+$38**, and
+`controlledPlDirection` is the *fraction word of `deltaZ`* — a different field
+entirely ([amiga/STATE.md](amiga/STATE.md) §5, on IDA's one-word position skew).
+The two ports may simply have laid the struct out differently, but a field whose
+name means one thing in one oracle and something unrelated in the other is worth
+confirming before either offset goes into our code.

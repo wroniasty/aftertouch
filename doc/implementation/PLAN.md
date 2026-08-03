@@ -24,7 +24,7 @@ only layer whose correctness has an objective test. **Presentation** (C) and **S
 that a beautiful shell around a match that feels wrong is worth nothing. **Career
 depth** (E) is the layer where this game stops being a reimplementation — ageing,
 ceilings, academies, transfers, wages — and it is separated from the match by a wall
-as hard as the SDL one: the engine sees 0–15 integers and nothing else, forever
+as hard as the SDL one: the engine sees 0–7 integers and nothing else, forever
 (§6, rule 4). The schedule runs in seven waves; each wave has a gate that must be
 demonstrated, not asserted — and everything is tested to a standard set per layer in
 §7, because a deterministic engine behind a hard wall is the rare case where that is
@@ -76,7 +76,7 @@ condition, deliberately narrow — the subfile expands it into a real checklist.
 | **A3** | **Trace harness.** The trace record format, engine-side emission, reference-side instrumentation, `src/tools/trace_viewer/`, and the input corpus. | A2 | [../PLAN.md](../PLAN.md) §9 Phase 0, [../STATE.md](../STATE.md) | Two traces load side by side and the viewer reports first-divergence tick for a recorded kickoff. |
 | **A4** | **Asset pipeline.** `src/tools/assetc/` reading an owned original install into *our* runtime format, `IAssetSource` with placeholder and imported implementations, first-launch import prompt. | A1 | [../PLAN.md](../PLAN.md) §10, [../RENDERING.md](../RENDERING.md), [../PLAYER_SPRITES.md](../PLAYER_SPRITES.md) §1 | Clean clone with no original data builds, runs and passes tests on placeholder art; with data present, imports without touching git. |
 | **A6** | **Test infrastructure.** The harness everything else is verified with: doctest wiring, fixtures, golden-trace regression, the headless season runner, offscreen render capture, the null UI backend, fuzz entry points, and CI on both platforms. See §7. | A3 | [A6-test-infrastructure.md](A6-test-infrastructure.md) | `ctest` runs the whole suite on both platforms in CI, core tests link no SDL, and a deliberately introduced physics change fails a golden trace. |
-| **A5** | **Game data.** Team, player, tactics and career file readers; our own on-disk schema; the fictional default dataset. Attributes are 0–15 nibbles. | A4 | [../DATA.md](../DATA.md), [A5-game-data.md](A5-game-data.md) | A league of fictional teams loads into `MatchState` and round-trips through our format. |
+| **A5** | **Game data.** Team, player, tactics and career file readers; our own on-disk schema; the fictional default dataset. Attributes are 0–7. | A4 | [../DATA.md](../DATA.md), [A5-game-data.md](A5-game-data.md) | A league of fictional teams loads into `MatchState` and round-trips through our format. |
 
 ### B. Match engine — `src/core/`, pure, headless, testable
 
@@ -99,6 +99,7 @@ the original with nothing to diff against, so they are judged on distributions i
 | **B10** | **Match input.** The device layer, the two-level event model, the one-team-per-frame alternation, configuration. Interface in core, devices in app. | B4 | [../INPUT.md](../INPUT.md) | Gamepad and keyboard drive the same seven-field interface the AI uses. |
 | **B12** | **Performance rating.** A 1–10 rating per player per match, derived from match events. Pure computation over what the engine already emits; **changes no gameplay**. Both B11 backends must produce it. | B2 | — (a departure from the original; [../SIMULATION.md](../SIMULATION.md) §7 for the statistics that feed it) | The same match played and re-resolved by table produces ratings on one scale, and removing the rating code changes no tick of simulation. |
 | **B11** | **Result simulation.** *View result* for matches nobody plays: one `IResultSimulator` interface, at least two interchangeable backends — a cheap statistical model and the real engine run headless — plus the `MatchResult` they both fill. Contract below. | B9, A5, B12 | [../SIMULATION.md](../SIMULATION.md) §10, [../AI.md](../AI.md) §5, [../DATA.md](../DATA.md) §3 | A full division's fixtures resolve under either backend with no caller change, and a season under each lands in the same statistical envelope. |
+| **B13** | **Amiga oracle incorporation.** Reconciling the engine with the second oracle: two corrections (the attribute range is 0–7; the heading table has 8 entries), the confirmed constants, four mechanics we never had, and six recorded disagreements turned into A/B switches. A values-and-details pass — the architecture is *confirmed* by the Amiga reading, not overturned. | B6a, A5, A3 | [../AMIGA_CHANGES.md](../AMIGA_CHANGES.md), [../amiga/](../amiga/), [B13-amiga-oracle.md](B13-amiga-oracle.md) | No 0–15 attribute range survives anywhere; every attribute-indexed table `static_assert`s to 8 entries; a dribble past the Control-derived touch limit loses the ball; all six disagreement switches exist and each has a corpus scenario that reaches its mechanic. |
 
 #### B11 in detail: the pluggability contract
 
@@ -175,7 +176,7 @@ All of it is bound by Rule 4 (§6): **none of it reaches the match engine.**
 
 | ID | Part | Depends | Sources | Done when |
 |---|---|---|---|---|
-| **E1** | **Career player model + projection.** The rich record — age, continuous abilities, per-ability ceilings, the age/peak curve, injury proneness, the retirement-probability curve, the one-season retirement notice, salary, learned positions. Plus the projection down to the engine's 0–15 nibbles, and the presentation rules kept from the original: the three-letter best-abilities descriptor, and **no numeric attribute is ever shown**. | A5, D2 | [../DATA.md](../DATA.md) §3, [../LEGACY.md](../LEGACY.md) | A career player projects to a legal engine attribute set; `check_walls` proves no career field is reachable from `src/core/` match code. |
+| **E1** | **Career player model + projection.** The rich record — age, continuous abilities, per-ability ceilings, the age/peak curve, injury proneness, the retirement-probability curve, the one-season retirement notice, salary, learned positions. Plus the projection down to the engine's 0–7 integers, and the presentation rules kept from the original: the three-letter best-abilities descriptor, and **no numeric attribute is ever shown**. | A5, D2 | [../DATA.md](../DATA.md) §3, [../LEGACY.md](../LEGACY.md) | A career player projects to a legal engine attribute set; `check_walls` proves no career field is reachable from `src/core/` match code. |
 | **E2** | **Valuation and wages.** Price from **performance, not ability** — rolling B12 ratings, age, contract length, position scarcity. Salary demands from the same inputs. Career-only. | E1, B12, D3 | — (design work) | Two players with identical projected attributes and different season ratings carry materially different prices and wage demands. |
 | **E3** | **Progression, training, injury.** Ageing along the curve; training grounds and staff; assignment and progress feedback; the ceiling rule — **training past a ceiling yields tiny gains and trade-offs** (technique up, pace down; strength up, control down). Position learning: a midfielder becoming a winger. Injury frequency driven by proneness. | E1 | — (design work) | A ten-season headless run produces plausible arcs — rise, peak, decline, retirement — with no ability ever exceeding its ceiling. |
 | **E4** | **Academy — a discovery model.** A spawn is **a talent being discovered**, not a youngster enrolling; see below. Level and funding buy discovery *rate* and the quality tail — unlike the original, a discovery is **usually worth having and can occasionally be a superstar**. Vacancy pressure when a retirement leaves no cover. Rotation of the undiscovered. | E3, E6 | — (design work) | Funding measurably shifts both discovery rate and the quality tail over N seasons, and a retirement with no cover reliably produces cover without producing it instantly. |
@@ -216,16 +217,16 @@ produces nobody in particular. What follows:
 The single most important thing in this layer, and the reason it is a layer at all.
 
 The career model wants continuous, drifting, ceilinged abilities with history. The
-match engine wants what [../DATA.md](../DATA.md) §3 specifies: integers, 0–15. These
+match engine wants what [../DATA.md](../DATA.md) §3 specifies: integers, 0–7. These
 are different models of the same player and **they must never be the same object.**
 
 - **One direction only.** Career → engine, at squad selection. The engine never reads
   a career field and never writes one back. Whatever a career ability does over
-  fifteen seasons, the engine sees a legal 0–15 set or the build does not link.
+  fifteen seasons, the engine sees a legal 0–7 set or the build does not link.
 - **Quantise once per match, not per tick.** The engine receives a frozen snapshot at
-  kickoff. A player drifting across 7.49/7.51 must not flicker between 7 and 8
+  kickoff. A player drifting across 5.49/5.51 must not flicker between 5 and 6
   mid-match, and no engine code should ever be tempted to ask for more precision than
-  the nibble.
+  the integer.
 - **Career arithmetic is fixed-point too.** Not because the engine needs it — the
   engine never sees it — but because a career resolved from a seed should replay
   identically on both platforms, exactly like a match. Floats here quietly cost that.
@@ -254,7 +255,7 @@ below state what is new; they all inherit that.
 | **0 — Skeleton** ✔ | A1 | Bootstrap | **Passed.** [../PLAN.md](../PLAN.md) §8 fully ticked on Windows and macOS. |
 | **1 — Instrument** ← *current* | A2, A3, **A6**, A4 | Phase 0 | A reference trace and an engine trace load into the viewer and report a divergence tick, and the test harness that will verify every later part runs green in CI on both platforms. Nothing in Wave 2 starts before this. |
 | **2 — The ball moves** | B1, B2, B3, B4, B10 | Phase 1 | A human can run a player around a pitch and kick a ball that behaves, with divergence measured in hundreds of ticks. Needs a thin slice of C1 to be watchable — that slice is scheduled here, the rest of C1 is not. |
-| **3 — The match** | B5, B6, B7, B8, B9, A5, **B12**, **B11** | Phase 1 | Eleven-a-side, full 90 minutes, all restarts, CPU opponent. **Then play it.** If it does not feel right, the wave has not ended — [../PLAN.md](../PLAN.md) §9 is explicit that nothing downstream rescues this. |
+| **3 — The match** | B5, B6, B7, B8, B9, A5, **B12**, **B11**, **B13** | Phase 1 | Eleven-a-side, full 90 minutes, all restarts, CPU opponent. **Then play it.** If it does not feel right, the wave has not ended — [../PLAN.md](../PLAN.md) §9 is explicit that nothing downstream rescues this. |
 | **4 — The game** | C1–C6, D1 | Phase 2 | A match is playable end to end with camera, sprites, sound, replays and substitutions, driven from a real shell. |
 | **5 — The career** | D2, D3, **E1**, D4 | Phase 2–3 | A season completes: fixtures, results, table, and a visual pass on the screens that survived. E1 lands here rather than in Wave 6 because D2's save schema has to be built around the rich player record, not retrofitted to it. |
 | **6 — The club** | E2, E3, E4, E5, E6, E7 | Phase 4 (new) | Ten seasons run headless and stay coherent: players age, peak, decline and retire; academies replace them; the market moves; the books balance; AI clubs stay static without stagnating into nonsense. Then play a career and see whether any of it is legible from inside the game. |
@@ -283,6 +284,12 @@ below state what is new; they all inherit that.
 - **B6 owns the schedule risk.** It is the mechanic the game is named after and the
   one most likely to be *almost* right. Budget for it to overrun and do not let a
   wave gate hide that.
+- **B13 lands before the play-feel gate, not after it.** It changes felt values —
+  total aftertouch curl roughly halves, the shot bonuses become signed, and the
+  dribble acquires a touch limit. Playing the wave gate against pre-B13 values and
+  then changing them means the gate measured a build nobody will ship. It is
+  sequenced last within Wave 3 because it needs B6a's structural repairs underneath
+  it, and its own §4 R5 batch is the only part that blocks on A3.
 - **Wave 6 is the one that can be cut.** Everything before it is a football game.
   Wave 6 is the depth that makes a career worth replaying, and it is also the layer
   most likely to consume unbounded time, because it has no oracle and its acceptance
@@ -352,7 +359,7 @@ in the subfiles:
 
 A fourth is added here, because the E layer cannot exist safely without it:
 
-4. **The career model never reaches the match engine.** The engine sees 0–15
+4. **The career model never reaches the match engine.** The engine sees 0–7
    integers, projected once at squad selection, and nothing else — no age, no
    ceiling, no form, no contract, no continuous ability. Whatever the career layer
    grows into over the project's life, the engine's view of a player does not change,

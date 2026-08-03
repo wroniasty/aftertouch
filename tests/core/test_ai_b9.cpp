@@ -247,7 +247,29 @@ TEST_CASE("cpu vs cpu short match produces activity") {
 TEST_CASE("scripted cpu chase/shoot hash is stable") {
     const uint64_t a = RunCpuScriptHash();
     CHECK(a == RunCpuScriptHash());
-    constexpr uint64_t kExpected = 0x7250d96d4bb3ccd7ull;
+    // Re-pinned B13 / R3: Amiga launch and curl values. Flat kick speed 2800 → 2208,
+    // curl magnitude 12 → 32 against a decay ramp summing 39 → 23, and the shot
+    // bonuses became signed, so a CPU striker below Velocity 4 now loses pace on the
+    // strike instead of merely gaining none.
+    //
+    // Previously (B6a): CPU strikes dribble through the charge (S4) and the
+    // aftertouch window opens a tick later (S2).
+    // Re-pinned again B13 / R4: the dribble touch-count and the goal-versus-save
+    // resolution stage both reach this scenario.
+    // Re-pinned B13 / R6 (pass fixes): pass targeting is the Amiga's — no range
+    // limit, cone anchored at the ball at +-22.5 degrees, aim ray extended past the
+    // receiver — and the post-kick lockout no longer blocks team-mates from
+    // receiving. Pass strength and the Passing bonus are now the sourced tables.
+    // ...and collecting the ball now closes the aftertouch window, so the CPU's
+    // own tap no longer gets lofted off its receiver's foot at the tick-4 sample.
+    // ...and the kicker exclusion now expires with the kick lockout instead of
+    // being permanent, so the CPU can re-select the man standing over the ball.
+    // Re-pinned B13 / R7 (goalkeeper): the keeper's resting destination is the
+    // Amiga arc-and-band map — a 103px arc across his goal and a 27px depth
+    // band — instead of the midpoint between the ball and his own goal line on
+    // a 254px arc, which sent him to the halfway line whenever the ball was at
+    // the far end. Both keeper callers now share one formula.
+    constexpr uint64_t kExpected = 0x9390f7e46105d556ull;
     CAPTURE(a);
     CHECK(a == kExpected);
 }

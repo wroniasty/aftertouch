@@ -34,6 +34,15 @@ TEST_CASE("scripted kick trajectory hash is stable") {
 
     // Pinned after B3 UpdateBall. If physics change on purpose, print and update.
     // Pinned after B3 UpdateBall. If physics change on purpose, print and update.
-    constexpr uint64_t kExpected = 0x2618ab668dfcf0b4ull;
+    // Re-pinned B13 / R6 (pass fixes): pass targeting is the Amiga's — no range
+    // limit, cone anchored at the ball at +-22.5 degrees, aim ray extended past the
+    // receiver — and the post-kick lockout no longer blocks team-mates from
+    // receiving. Pass strength and the Passing bonus are now the sourced tables.
+    // Re-pinned B13 / R7 (goalkeeper): the keeper's resting destination is the
+    // Amiga arc-and-band map — a 103px arc across his goal and a 27px depth
+    // band — instead of the midpoint between the ball and his own goal line on
+    // a 254px arc, which sent him to the halfway line whenever the ball was at
+    // the far end. Both keeper callers now share one formula.
+    constexpr uint64_t kExpected = 0x9ef1f7e2346ab6b0ull;
     CHECK(a == kExpected);
 }

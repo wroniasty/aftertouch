@@ -20,6 +20,14 @@ to the ball after it leaves the head is [BALL.md](BALL.md).
 > ([swos.asm:245768-245903](../reference/swos-port/swos/swos.asm#L245768)), not
 > addresses. Read to understand the design; write our own code.
 
+> **Second oracle — and a correction.** [amiga/KICKING.md](amiga/KICKING.md) §5
+> traces the same routines through the Amiga original. It confirms the structure of
+> §4 almost exactly, and it answers three of §8's open questions. It also shows that
+> **§6's thirteen-entry Heading table is a mis-read of an eight-entry one** — which
+> makes §6's headline conclusions (that Heading is the strongest attribute effect in
+> the game, and that attributes range 0–12) both wrong. §10 has the details; read it
+> before using anything from §6.
+
 ---
 
 ## 0. One-paragraph version
@@ -250,6 +258,15 @@ Two important differences from the jump header:
 
 ## 6. The Heading attribute
 
+> ⚠️ **This section is superseded by §10.** The Amiga original has this table with
+> **eight** entries — `−336, −288, −240, −192, −144, −96, −48, 0` — and clamps every
+> attribute to 7 on load. Those are exactly the first eight values below; the five
+> that follow belong to whatever data item sits next in the segment. The table is a
+> **pure handicap ramp with no upside**, not the game's strongest attribute effect,
+> and it settles nothing about the attribute range. The rest of this section is left
+> in place because the mis-read propagated to several other documents and needs to
+> be traceable, but **do not implement from it**.
+
 `kPlayerHeaderSpeedIncrease`
 ([swos.asm:245768](../reference/swos-port/swos/swos.asm#L245768)), added to ball
 speed by **both** header types:
@@ -268,12 +285,13 @@ more than ten times the slope. Against a static header's base of 1792, a Heading
 player adds +2569, more than **doubling** the ball speed, while a Heading-0 player
 loses only 336.
 
-**This is the strongest attribute effect found anywhere in the reference so far.**
+**~~This is the strongest attribute effect found anywhere in the reference so far.~~**
+*(Void — §10. It is the weakest: a handicap ramp topping out at zero. The attribute
+that really shows player quality is Ball Control — [CONTROL.md](CONTROL.md) §8.)*
 Compare the tackle contest ([TACKLING.md](TACKLING.md) §8), where the entire
-attribute range buys a swing from 50 % to 72 %. Heading is where SWOS lets player
-quality actually show.
+attribute range buys a swing from 50 % to 72 %.
 
-**It also settles the attribute range question.** The table has **13 entries**,
+**~~It also settles the attribute range question.~~** *(Void — §10.)* The table has **13 entries**,
 indexed directly by the raw attribute with no clamp. So `PlayerGameHeader.heading`
 reaches at least 12, which means the 0–7 assumption behind several other tables is
 wrong. This bears directly on the open bounds question in
@@ -294,7 +312,7 @@ can reach 12 and that table is read out of bounds. Worth checking against
 | `kBallJumpHeaderDeltaZ` | `0xA000` (0.625) | Base launch height, jump header |
 | `kHeaderLowJumpHeight` | `0x20000` (2.0) | `DoFlyingHeader` |
 | `kHeaderHighJumpHeight` | `0x24000` (2.25) | `DoLobHeader` |
-| `kPlayerHeaderSpeedIncrease` | `−336 … +2569`, 13 entries | Heading attribute bonus |
+| `kPlayerHeaderSpeedIncrease` | **`−336 … 0`, 8 entries** (§10; not the 13 entries §6 records) | Heading attribute handicap |
 | Jump-header ball speed | `player.speed × 1.25` | |
 | `DoFlyingHeader` speed | `× 0.75` | |
 | `DoLobHeader` speed | `× 0.9375` | |
@@ -321,9 +339,23 @@ can reach 12 and that table is read out of bounds. Worth checking against
 - Static header reflects and halves the ball's incoming `deltaZ` rather than
   replacing it. ✓
 - Static header can turn at most 90° toward the held direction. ✓
-- Heading attribute is a signed ±table on ball speed, zero at 7, strongly
-  asymmetric, with 13 entries. ✓
+- ~~Heading attribute is a signed ±table on ball speed, zero at 7, strongly
+  asymmetric, with 13 entries.~~ **Retracted — see §10.** It is an eight-entry
+  non-positive ramp, `−336 … 0`, and the positive tail was read past the end of the
+  table.
 - Both headers reset both teams' spin timers, killing aftertouch. ✓
+
+**Resolved by the Amiga oracle** (see §10):
+
+- ~~Jump-header recovery time.~~ **50 frames**, set at launch alongside the state
+  and the animation table (asm:39694). The tackling dead-store worry does not apply
+  here; the Amiga writes it once and it stands.
+- ~~The true attribute range.~~ **0–7**, masked and clamped explicitly on load
+  ([amiga/PLAYERS.md](amiga/PLAYERS.md) §1). Every attribute-indexed table in the
+  engine has exactly eight entries, which is the structural confirmation.
+- ~~Why the lob retains more speed than the drive.~~ Still not *explained*, but the
+  Amiga confirms both branches exist and both cut speed, so it is not a swapped
+  shift introduced by the port.
 
 **Open (measurement targets, [LEGACY.md](LEGACY.md) §15):**
 
@@ -339,16 +371,16 @@ can reach 12 and that table is read out of bounds. Worth checking against
   entry test for `AttemptStaticHeader`
   ([:4914-4922](../reference/swos-port/src/game/updatePlayers/updatePlayers.cpp#L4914-L4922))
   is only partially read.
-- **Jump-header recovery time.** The static header's is 20; the jump header's is
-  governed by `setPlayerDownHeadingInterval` (50 Amiga / 55 PC) — but given the
-  identical setter for tackling turned out to be a dead store
-  ([TACKLING.md](TACKLING.md) §2), this needs verifying rather than assuming.
-- **The true attribute range** (§6). 13 entries implies 0–12; [LEGACY.md](LEGACY.md)
-  §9 should be reconciled and the other attribute tables re-checked for bounds.
 - Whether the CPU can select lob vs drive, or whether its virtual joystick
   ([AI.md](AI.md) §5) only ever produces the `held < 0` / straight-ahead cases.
-- Why the lob retains more speed than the drive — deliberate, or a swapped shift?
+  The Amiga has a dedicated `AIHeader` (asm:46576) that was not traced in detail.
 - `TeamGeneralInfo.ballCanBeControlled` — set to 0 here, consumed elsewhere.
+- **Whether the static header takes an attribute bonus at all.** §5 adds
+  `kPlayerHeaderSpeedIncrease` on both paths; the Amiga is explicit that
+  `DoStaticHeader` consults **no attribute** (§10).
+- **The static header's flat 1792 ball speed.** The Amiga records the static
+  header's `$100` player speed and its 20-frame duration but no ball speed at all,
+  so 1792 is single-sourced (§10).
 
 ---
 
@@ -365,14 +397,98 @@ can reach 12 and that table is read out of bounds. Worth checking against
   reflection for the static case and the flat 1792. A single unified "header"
   routine loses the distinction that makes standing headers reliable and lunging
   ones explosive.
-- **Reproduce the Heading attribute curve as-is, including the asymmetry and the
-  zero point at 7.** It is the clearest attribute signal in the game and flattening
-  it into a linear scale would remove one of the few places where squad quality is
-  legible in play.
-- **Resolve the attribute-range question before writing any attribute table**
-  (§6). Getting this wrong silently corrupts several unrelated systems.
+- **Reproduce the Heading ramp as a pure handicap** — `−336 … 0`, eight entries,
+  topping out at zero (§10). It looks like a bug and is not one: headers derive
+  their pace from the jump, and the table exists to penalise poor headers rather
+  than reward good ones. Do not "fix" it into a reward curve.
+- **Model attributes as 0–7** (§10). Every table in the engine is eight entries
+  wide; anything else means reindexing all of them.
 - **Kill aftertouch on contact**, consistently with tackles and frame hits — one
   shared "possession event" hook rather than three scattered calls.
 - **Do the whole thing inside the deterministic tick**, driven by the same
   `(direction, fire_state)` input for human and CPU alike
   ([MOVEMENT.md](MOVEMENT.md) §8).
+
+---
+
+## 10. Amiga cross-check
+
+Traced independently through the Amiga original — [amiga/KICKING.md](amiga/KICKING.md)
+§5 (`PlayerHeading` asm:39688, `PlayerDoingHeader` asm:38018, `DoStaticHeader`
+asm:38285).
+
+### The Heading table has eight entries, not thirteen
+
+`playerStrongHeaderSpeedIncrease` (asm:34852):
+
+| Heading | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
+|---|---|---|---|---|---|---|---|---|
+| Δspeed | −336 | −288 | −240 | −192 | −144 | −96 | −48 | **0** |
+
+Those are §6's first eight values, exactly. The five that follow it there —
++513, +1027, +1541, +2055, +2569 — are not part of this table; they are whatever
+data item is laid out next in the segment, and their near-constant stride of ~514
+is characteristic of an offset or pointer block rather than a tuning curve. The
+Amiga clamps every attribute to 7 on load and every attribute-indexed table in the
+binary has exactly eight entries.
+
+Three consequences, all of which reverse conclusions elsewhere in the docs:
+
+- **Heading is a pure handicap ramp with no upside.** Heading 7 gets *no* bonus and
+  every lesser value is a penalty. §6's "strongest attribute effect found anywhere"
+  is exactly backwards: it is the *weakest*, and it is the only attribute whose
+  table can never help you. Against a jump-header launch of 2048 × 5/4 = 2560, a
+  Heading-0 player loses 336 — a 13 % cut, and that is the whole range.
+- **It settles nothing about the attribute range**, and the 0–12 inference built on
+  it is void. The range is 0–7 ([amiga/PLAYERS.md](amiga/PLAYERS.md) §1).
+- **The knock-on bounds worry is void too.** [TACKLING.md](TACKLING.md) §10's fear
+  that `kPlAvgTacklingBallControlDiffChance` is read out of bounds does not arise;
+  an eight-entry table indexed by a difference of two 0–7 values is correctly sized.
+
+This mis-read propagated into [DATA.md](DATA.md) §3, [STATE.md](STATE.md),
+[TACKLING.md](TACKLING.md) §10 and [README.md](README.md)'s conventions list; all
+are corrected in [AMIGA_CHANGES.md](AMIGA_CHANGES.md).
+
+### Confirmed, exactly
+
+| §7 constant | Amiga symbol | Line | Value |
+|---|---|---|---|
+| `kJumpHeaderSpeed` | `jumpHeaderSpeed` | asm:30707 | 2048 |
+| `kStaticHeaderPlayerSpeed` | — | asm:38300 | $100 (256) |
+| `kBallJumpHeaderDeltaZ` | `ballKickingDeltaZ_2` | asm:30587 | $A000 |
+| Jump-header ball speed × 1.25 | — | asm:38027 | `speed × 5/4` |
+| Player speed after contact × 0.5 | — | asm:38111 | halved |
+| Static-header downtime 20 | — | asm:38303 | 20 frames |
+| Jump-header duration | — | asm:39694 | **50 frames** |
+
+The Amiga adds one framing worth keeping: the header rise `$A000` is exactly **half**
+the kick's `$14000` ([SHOOTING.md](SHOOTING.md) §9). Headers stay lower than kicks
+by construction.
+
+### The direction switch is confirmed — and we answer the Amiga's question
+
+§4's seven-way dial matches the Amiga's reading step for step: difference 0 heads
+straight on, ±1 nudges the aim one octant, ±2 and ±3 route through two helper
+routines that alter `deltaZ` and cut speed *before* also nudging the octant, and
+**with no joystick input at all the ball goes straight on with the ±2 helper
+applied** — which is exactly §4's `held < 0` → `DoFlyingHeader` row.
+
+The Amiga names those helpers `sub_11280A` and `sub_112822` (asm:38230, asm:38248)
+and lists "what they do to `deltaZ` in detail" as an open measurement target.
+**§4 answers it**: `0x20000` with speed × 0.75 for the flying header, `0x24000`
+with speed × 0.9375 for the lob. This is one of the few places our DOS-port
+documents are ahead of the Amiga set, and it should be fed back.
+
+### One disagreement
+
+**The static header's attribute bonus.** §5 adds `kPlayerHeaderSpeedIncrease` on
+both header paths. The Amiga is explicit that `DoStaticHeader` consults **no
+attribute at all** — it sets the player's own speed to a flat 256, enters a
+20-frame settle state, and that is the whole routine. It calls the static header
+"the defensive nod, not a scoring header", which is a different design intent from
+§5's "predictable and, at 1792, genuinely powerful".
+
+Related: the Amiga records no static-header *ball* speed, so §5's flat 1792 and its
+`deltaZ = −deltaZ / 2` reflection are single-sourced. The reflection in particular
+is a distinctive mechanic — it is the only place the incoming ball's state affects
+the outgoing trajectory — and it deserves confirmation rather than inheritance.

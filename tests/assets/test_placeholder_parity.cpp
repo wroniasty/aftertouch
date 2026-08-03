@@ -54,7 +54,8 @@ void WriteBytes(const fs::path& p, const std::vector<uint8_t>& b) {
 fs::path MakeImportTwin(const fs::path& placeholder_dir) {
     const auto twin = fs::temp_directory_path() / "at_parity_import";
     fs::create_directories(twin);
-    for (const char* name : {"slotA_blk0.atp", "slotB_blk0.atp", "ball.atp", "pitch1.atp"}) {
+    for (const char* name : {"kit_vstripe.atp", "kit_hstripe.atp", "kit_sleeves.atp",
+                             "keepers.atp", "ball.atp", "numbers.atp", "pitch1.atp"}) {
         std::vector<uint8_t> bytes;
         REQUIRE(render::ReadFileBytes((placeholder_dir / name).string().c_str(), bytes));
         WriteBytes(twin / name, RetintPack(bytes, 3));
@@ -70,13 +71,20 @@ TEST_CASE("PlaceholderAssets opens committed packs with dimensional contract") {
     CHECK(ph->IsPlaceholder());
     CHECK(ph->PlayerFrames() == kPlayerFrameCount);
 
-    const SpriteSheet* s = ph->Player(TeamSlot::A, Dir::N, 0);
+    const SpriteSheet* s = ph->Player(ShirtGeometry::VerticalStripes, 0);
     REQUIRE(s);
     CHECK(s->width == kPlayerSpriteW);
     CHECK(s->height == kPlayerSpriteH);
     CHECK(s->pixels.size() == size_t(kPlayerSpriteW * kPlayerSpriteH));
 
-    REQUIRE(ph->Ball());
+    // Four rotation frames plus the separate ground shadow (C3 §3.4).
+    for (int f = 0; f < kBallFrameCount; ++f) REQUIRE(ph->Ball(f));
+    REQUIRE(ph->BallShadow());
+    REQUIRE(ph->Number(1));
+    REQUIRE(ph->Number(kMaxShirtNumber));
+    CHECK(ph->Number(0) == nullptr);
+    CHECK(ph->Number(kMaxShirtNumber + 1) == nullptr);
+    REQUIRE(ph->Keeper(0));
     const PitchTiles* pitch = ph->Pitch(PitchType::Normal);
     REQUIRE(pitch);
     CHECK(pitch->tile_w == kPitchTileSize);
@@ -99,9 +107,11 @@ TEST_CASE("placeholder vs imported parity: dims/anchors/counts, not colours") {
     CHECK(ph->PlayerFrames() == imp->PlayerFrames());
 
     for (int frame = 0; frame < kPlayerFrameCount; ++frame) {
-        for (TeamSlot slot : {TeamSlot::A, TeamSlot::B}) {
-            const SpriteSheet* a = ph->Player(slot, Dir::E, frame);
-            const SpriteSheet* b = imp->Player(slot, Dir::E, frame);
+        for (ShirtGeometry geo : {ShirtGeometry::VerticalStripes,
+                                  ShirtGeometry::HorizontalStripes,
+                                  ShirtGeometry::ColouredSleeves}) {
+            const SpriteSheet* a = ph->Player(geo, frame);
+            const SpriteSheet* b = imp->Player(geo, frame);
             REQUIRE(a);
             REQUIRE(b);
             CHECK(a->width == b->width);

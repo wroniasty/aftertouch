@@ -21,6 +21,13 @@ every tick, regardless of who last touched it.
 > worth confirming against traces, but they are considerably better than guesses.
 > Read to understand the design; write our own code.
 
+> **Second oracle.** [amiga/BALL.md](amiga/BALL.md) covers the same subsystem traced
+> through the Amiga original's `UpdateBall` (asm:21593). Every constant in §9 below
+> is independently confirmed there as a *named literal* in the Amiga data segment,
+> and the Amiga reading also settles four of the open questions in §10. Where the
+> two disagree — the crossbar, the goalmouth region, the barrier's activation gate —
+> §12 records it.
+
 ---
 
 ## 0. One-paragraph version
@@ -414,26 +421,48 @@ horizontal speed on contact (80). Note the Amiga and DOS speed-influence tables
 - Gravity, friction and keeper reach differ between Amiga and DOS builds — with
   numbers. ✓
 
+**Resolved by the Amiga oracle** (were open here; see §12):
+
+- ~~`CalculateDeltaXAndY` is not read here.~~ Read in full at
+  [amiga/MOVEMENT.md](amiga/MOVEMENT.md) §1: a halving reduction into a 32 × 32
+  arctangent table, then a Q15 sine table shifted to Q7 and multiplied by `speed`.
+  The 32-bit products *are* the 16.16 deltas, which is where the ~1/512 speed unit
+  comes from.
+- ~~Whether `kBallGroundConstant` etc. match the original binaries.~~ They do. 16,
+  10 and 4608 are literals named `ballGroundConstant`, `ballAirConstant` and
+  `gravityConstant` in the Amiga data segment (asm:30582, 30583, 30615). The port's
+  Amiga column is a faithful transcription, not a fit.
+- ~~What sets `fullDirection`.~~ `CalculateDeltaXAndY` returns it; resolution is 256
+  steps but *effective* resolution degrades with distance to the aim point because
+  of the halving reduction — see §12.
+- ~~Ball-quadrant classification: what the bands are.~~ A 5 × 7 grid keyed on the
+  **predicted landing point**, boundaries in [amiga/AI.md](amiga/AI.md) §1, consumed
+  by off-ball positioning ([AI.md](AI.md) §3).
+- ~~Tick rate.~~ 50 Hz on the Amiga, derived and corroborated in
+  [amiga/TIMING.md](amiga/TIMING.md) §2 from the four match-length settings. Every
+  per-second figure in §12 uses it. The DOS port's rate is still unmeasured.
+
 **Open (measurement targets, [LEGACY.md](LEGACY.md) §15):**
 
-- `CalculateDeltaXAndY` is not read here: the exact `speed` + `fullDirection` →
-  `deltaX/deltaY` mapping, and whether it is a lookup table or a computation.
-- Whether `kBallGroundConstant` etc. in this port match the original binaries, or
-  are the porters' fitted approximations. **This matters more than any other item
-  in this document** — everything downstream is calibrated against them.
-- What sets `fullDirection` in the 0–255 space, and its resolution in practice.
 - The goal-frame region ([:709-1690](../reference/swos-port/src/game/ball/ball.cpp#L709-L1690))
   is summarised, not fully traced — the net, top-of-goal and goal-out subdivisions
-  need their own pass before set-piece work.
+  need their own pass before set-piece work. The Amiga geometry in §12 is a good
+  template for what that pass should recover.
 - Deflection off players: where an intercepted ball's new direction comes from
   (`[LEGACY.md](LEGACY.md)` §15 "deflection rules on intercepted balls" is still open).
-- Ball-quadrant classification ([:1823](../reference/swos-port/src/game/ball/ball.cpp#L1823)) —
-  what the bands are and which AI decisions consume them.
+  Partially answered for the *tackle* case in [amiga/CONTEST.md](amiga/CONTEST.md) §3.
 - `ballNextYGroundY` versus `ballNextY`: two different predictions, and
   [updatePlayers.cpp](../reference/swos-port/src/game/updatePlayers/updatePlayers.cpp#L1241)
-  reads the former in at least five places. The distinction is unexplained.
-- Tick rate: `kTargetFpsAmiga` / `kTargetFpsPC` values, needed before any constant
-  above can be converted to per-second units.
+  reads the former in at least five places. The distinction is unexplained. The
+  Amiga has an analogous split in `UpdateBallVariables` (asm:38711), which publishes
+  the ball position under three filters — `ballDefensive*`, `ballNotHigh*` and
+  `strikeDest*` — and that is probably the same idea.
+- Which pitch index is which named surface **in the Amiga binary**. The DOS port
+  names them (§9); the Amiga index arrives from outside the match module. The tables
+  are identical, so the naming almost certainly carries over, but it is inferred.
+- Whether the DOS port also derives the goalmouth rebound scatter from the frame
+  counter (§12). If it uses `Rand` instead, the two builds consume RNG differently
+  and no trace can be compared across them.
 
 ---
 
@@ -464,4 +493,110 @@ horizontal speed on contact (80). Note the Amiga and DOS speed-influence tables
   SWOS quirks it carries no gameplay meaning.
 - **Fit every constant against traces before trusting it** ([LEGACY.md](LEGACY.md) §17).
   The values in §9 are the best starting point this project has, which is exactly
-  why they should be verified rather than assumed.
+  why they should be verified rather than assumed. The Amiga confirmation in §12
+  raises confidence in the *Amiga* column specifically; the DOS column is still only
+  the port's own word.
+
+---
+
+## 12. Amiga cross-check
+
+Traced independently through the Amiga original — [amiga/BALL.md](amiga/BALL.md).
+
+### Confirmed, exactly
+
+Every physics constant in the §9 **Amiga** column appears in the Amiga binary as a
+named literal, at the lines given:
+
+| §9 constant | Amiga symbol | Line | Value |
+|---|---|---|---|
+| `kBallGroundConstant` | `ballGroundConstant` | asm:30582 | 16 |
+| `kBallAirConstant` | `ballAirConstant` | asm:30583 | 10 |
+| `kGravityConstant` | `gravityConstant` | asm:30615 | 4608 |
+| `kKeeperSaveDistance` | `keeperSaveDistance` | asm:34835 | 24 |
+| `pitchBallSpeedFactor` (Amiga row) | `pitchBallSpeedInfluence` | asm:30608 | −2, +2, +3, 0, 0, −1, −1 |
+| `ballSpeedBounceFactor` | `ballSpeedBounceFactorTable` | asm:30594 | 24, 80, 80, 72, 64, 40, 32 |
+| `ballBounceFactor` | `ballBounceFactorTable` | asm:30601 | 88, 112, 104, 104, 96, 88, 80 |
+| `0xA000` settle threshold | — | asm:21754 | $A000 |
+| Barrier `[53, 618] × [100, 799]` | — | asm:21786, asm:21800 | same |
+| `speed >> 1` on barrier breach | — | asm:21786 | same |
+
+All seven entries of all three pitch tables match element-for-element, in the same
+order. That is the strongest single agreement between the two oracles: the port's
+`setAmigaModeEnabled()` really does restore the original's numbers, and the DOS
+column in §9 is the deliberate retune it claims to be.
+
+The structural claims agree too: friction as a subtraction (not a multiplication),
+air friction *replacing* ground friction, the pitch factor applying only to a loose
+ball, destination-mirroring instead of velocity reflection, position restored rather
+than penetration resolved, and a forward-simulated rather than analytically-solved
+landing predictor.
+
+### Now with physical units
+
+The Amiga's 50 Hz tick ([amiga/TIMING.md](amiga/TIMING.md) §2) and the ~1/512
+px/frame speed unit ([amiga/STATE.md](amiga/STATE.md) §1) turn §9's raw integers
+into figures we can sanity-check a trace against:
+
+| Quantity | Raw | Real |
+|---|---|---|
+| Gravity | 4608 | 0.0703 px/frame², **176 px/s²** |
+| Ground friction | 16 | 0.031 px/frame², 1.56 px/s² |
+| Kick launch speed | 2208 | 4.31 px/frame, **216 px/s** |
+| Kick launch rise | $14000 | 1.25 px/frame, 62.5 px/s |
+| Bounce cut-off | $A000 | 0.625 px/frame |
+
+A kicked ball rolling on a normal pitch stops after **138 frames — 2.76 seconds**.
+A ball launched at the standard rise reaches apex in ~18 frames and hangs for ~36.
+Both are cheap first tests for our integrator.
+
+### Three disagreements to resolve
+
+1. **The crossbar.** §6 here says bar and post converge on `speed -= speed >> 2`
+   with `deltaZ = -deltaZ` on the bar path. The Amiga does something different and
+   more specific ([amiga/BALL.md](amiga/BALL.md) §6): three *distinct* treatments —
+   post `speed >> 2` with `destX` mirrored, net `speed >> 3` with `destY` mirrored,
+   and the crossbar not reflecting at all but having `speed` **set** to a flat 512
+   with `destY` pushed 1000 px back out of the goal and `deltaZ = 1`. Below z = 15
+   the bar simply stops the ball dead. A set-versus-scaled speed is a behavioural
+   difference, not a rounding one, and it is the flat deadened bounce-out players
+   remember. **Re-read the DOS port's [:1442-1542](../reference/swos-port/src/game/ball/ball.cpp#L1442-L1542)
+   against this before implementing either.**
+
+2. **Goalmouth geometry, by one pixel.** §6 gives `kGoalLeft`/`kGoalRight` as
+   303/367; the Amiga goal test reads 302 … 366 for the mouth with the posts at
+   296 … 372 (asm:21830). The one-unit offset is most likely an inclusive/exclusive
+   convention difference in the two transcriptions rather than a real divergence,
+   but the *posts* band has no counterpart in this document at all and needs adding
+   once the goal-frame pass in §10 is done. The Amiga also gives the crossbar as a
+   band, Z 15 … 19, where this document has no crossbar height at all.
+
+3. **When the barrier is live.** §5 states the dead-ball barrier is active only
+   when `gameStatePl != ST_GAME_IN_PROGRESS`. The Amiga reading describes the same
+   rectangle but does not record that gate — it presents the barrier as a
+   containment field for a ball that has already gone out, which is consistent in
+   spirit but not evidence for the gate. Treat the DOS reading as authoritative
+   here (it is the more specific claim) and flag it for confirmation.
+
+### New from the Amiga, not covered above
+
+- **The goalmouth scatter.** During live play a second, tighter goal-area block
+  (asm:21840–21900) adds a lateral jitter to the rebound:
+  `d4 = ((stoppageTimer & 31) << 4) − 256`, i.e. −256 … +240 in steps of 16, added
+  to `destX` or `destY` by struck face. It is derived from the **frame counter, not
+  from `Rand`** — deterministic, and therefore safe to put inside `at_core` without
+  perturbing the RNG sequence. This is the mechanism behind unpredictable goalmouth
+  scrambles, and nothing in this document mentions it.
+- **The post-hit whistle suppression.** Before the goal-line branch, a ball with
+  speed ≥ $300 inside X 290 … 381 and Z < 25 triggers woodwork audio *and clears the
+  referee-whistle flag* ([amiga/SETPIECES.md](amiga/SETPIECES.md) §1), so a shot
+  that rebounds off the frame and out does not get whistled as a normal out-of-play.
+- **`deltaZ |= 1` is on the Amiga too** (asm:21728), and the Amiga reading gives the
+  reason plainly: it guards against `deltaZ` reaching exactly zero and the ball
+  hanging. §4's instinct to reproduce it rather than tidy it is correct.
+- **Bounces do not deflect.** The horizontal loss is applied to the scalar `speed`
+  only, so a bounce slows the ball along its existing heading and never changes it.
+  Worth stating explicitly; it is easy to add a deflection that was never there.
+- **`sub_107260` (asm:21759)** is called on a high-energy bounce and is *probably*
+  the bounce sound trigger — the same gating this document notes at §4, where a
+  settling ball bounces silently.

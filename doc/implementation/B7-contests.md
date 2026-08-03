@@ -105,7 +105,15 @@ deflect. `won_the_ball_timer = 12`; tick down; while >0 keep
 ### 2.4 Headers
 
 Jump: direction switch + flying/lob. Static: max 90° turn, flat 1792,
-`deltaZ = −deltaZ/2`. Heading attr table 13 entries, index `min(attr,12)`.
+`deltaZ = −deltaZ/2`. Heading attr table **8 entries**, index `AttrIndex0to7`.
+
+> **Corrected by [B13](B13-amiga-oracle.md) / R2.** This line used to read *"13
+> entries, index `min(attr,12)`"* and that mis-read reached the engine. The Amiga's
+> `playerStrongHeaderSpeedIncrease` stops after eight values; the five that followed
+> in the DOS listing belong to the next data item, and their near-constant ~514 stride
+> is characteristic of an offset block rather than a tuning curve. Heading is a pure
+> handicap ramp with no upside — 7 gets nothing, everything below is a penalty. See
+> [../AMIGA_CHANGES.md](../AMIGA_CHANGES.md) §2.2.
 
 ### 2.5 Tick order
 

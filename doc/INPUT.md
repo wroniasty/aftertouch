@@ -185,6 +185,24 @@ tick.** This is not an optimisation detail; it is a gameplay property:
 [MOVEMENT.md](MOVEMENT.md) §1 describes the per-tick pipeline; this is the piece
 that says the input stage of that pipeline alternates.
 
+> **Amiga cross-check: unconfirmed, and it matters.** This alternation is the single
+> most consequential claim in this document — it doubles input latency and halves
+> the rate at which player selection re-evaluates. [amiga/TIMING.md](amiga/TIMING.md)
+> §1 traces the Amiga original's per-frame call chain and reads it as **one
+> `Joystick_Wait` per frame that latches *both* joysticks together**, followed by a
+> single `UpdatePlayersAndBall` with a register pointing at one team. That is
+> *consistent* with alternation but is not evidence for it, and "both joysticks
+> latched together" reads more naturally as no alternation at all.
+>
+> The Amiga reading is emphatic on the adjacent point: **input is sampled once, at a
+> fixed position in the frame, into the team structures, and nothing re-reads the
+> hardware later in the frame.** §1's device-layer separation matches that exactly.
+>
+> Until this is settled by a trace, treat the two-tick latency figure as
+> single-sourced. It is listed as an open item in [LEGACY.md](LEGACY.md) §15 and in
+> [MOVEMENT.md](MOVEMENT.md) §13, and it is the highest-value unresolved question
+> across the whole corpus.
+
 **Bench zeroing**: while the bench is open, all seven control fields are forced to
 neutral unless `resetControls` is set — so a player cannot steer his team while
 browsing substitutions.

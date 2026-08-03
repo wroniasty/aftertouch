@@ -16,6 +16,13 @@ AI), §8 (on-ball AI) and §9 (attributes).
 > are still worth confirming against traces before they are load-bearing
 > ([LEGACY.md](LEGACY.md) §15). Read to understand the design; write our own code.
 
+> **Second oracle.** [amiga/MOVEMENT.md](amiga/MOVEMENT.md) traces the same
+> subsystem through the Amiga original (`CalculateDeltaXAndY` asm:20661,
+> `UpdatePlayerSpeed` asm:35391). Both speed tables, the injury ramp and the
+> animation-cadence formula match this document exactly. Five things do **not** —
+> the boundary rectangles, the turn-flag search order, the flat-3 downtime table's
+> meaning, and whether team updates alternate. All are in §13.
+
 ---
 
 ## 0. One-paragraph version
@@ -542,9 +549,14 @@ won if the roll is greater. Full resolution belongs in a tackle document, not he
 
 - **The unit scale.** Everything above is in pitch units; the mapping to metres (or
   to the 8 units-per-tile pitch tiles) is still [LEGACY.md](LEGACY.md) §15 work.
+  The Amiga oracle narrows it: `speed` is in units of **~1/512 px/frame**, derived
+  from the Q15→Q7 shift in the trig routine, so 512 ≈ 1 px/frame and every table
+  above converts to px/s at 50 Hz (§13).
 - **Whether 70 fps is the simulation rate or just the render rate** on the original
   PC build, and how that interacts with the 41/64 factor (the two do not cancel
-  exactly: PC ends up ≈ 10 % slower in absolute terms than Amiga).
+  exactly: PC ends up ≈ 10 % slower in absolute terms than Amiga). The **Amiga**
+  half of this is now settled at 50 Hz, one `UpdateTime` per frame, no sub-stepping
+  ([amiga/TIMING.md](amiga/TIMING.md) §2); only the PC figure remains inferred.
 - The **`ballOutOfPlay` semantics** in §6 — the disassembly's name is misleading and
   the flag is written from several places; worth a trace before relying on the
   "no switching while dribbling" reading.
@@ -583,4 +595,129 @@ won if the roll is greater. Full resolution belongs in a tackle document, not he
 - **Fit the tables from traces even though we now have the originals.** The values
   in §10 are a strong prior and a cross-check, not a licence to copy the data
   segment ([LEGACY.md](LEGACY.md) §15, §17, and the reference-tree policy in
-  [PLAN.md](PLAN.md) §10).
+  [PLAN.md](PLAN.md) §10). Those that the Amiga oracle also confirms (§13) are the
+  strongest priors we have; the rest are still single-sourced.
+
+---
+
+## 13. Amiga cross-check
+
+Traced independently through the Amiga original — [amiga/MOVEMENT.md](amiga/MOVEMENT.md).
+
+### Confirmed, exactly
+
+| §10 symbol | Amiga symbol | Line | Agreement |
+|---|---|---|---|
+| `kPlayerSpeedsGameInProgress` | `playerSpeedsGameInProgress` | asm:34726 | all 8 entries |
+| `kPlayerSpeedsGameStopped` | `playerSpeedsGameStopped` | asm:34734 | all 8 entries |
+| `kInjuriesSpeedHandicap` | `injuriesSpeedPenalty` | asm:35536 | all 8 entries |
+| `kDefaultDestinations` | `defaultPlayerDestinations` | asm:36496 | all 8 pairs, ±1000 |
+| `kPlayerTacklingSpeed` 1792 | `playerTacklingSpeed` | asm:30706 | $700 |
+| `kJumpHeaderSpeed` 2048 | `jumpHeaderSpeed` | asm:30707 | same |
+| `kSubstitutedPlayerSpeed` 1536 | `substitutedPlSpeed` | asm:30574 | same |
+| `kPlayerGroundConstant` 96 | `playerGroundConstant` | asm:30584 | same |
+| `kPlayerTacklingDownTime` | `unk_1106B2` | asm:34747 | 30 … 9 |
+| `kPlAvgTacklingBallControlDiffChance` | same name | asm:34774 | 16 … 23 |
+| `kBallSpeedDeltaWhenControlled` | `ballSpeedDeltaWhenControlled` | asm:34783 | 130 … 32 |
+| `playerXQuadrantsCoordinates` | same name | asm:35907 | 98 … 574 step 34 |
+| `playerYQuadrantCoordinates` | same name | asm:35937 | 149 … 749 step 40 |
+| `ballXQuadrantLimits` | same name | asm:35896 | 183, 285, 387, 489 |
+| `ballYQuadrantLimits` | same name | asm:35901 | 220 … 678 |
+| `frameDelay = max(1280 − speed,0)/128 + 6` | asm:35526 | `max(0, $500 − speed) >> 7 + 6` | identical |
+
+The movement kernel agrees step for step: absolute offsets, **halve both until
+under 32**, index a 32 × 32 arctangent table, fold the quadrant, look up a 256-entry
+Q15 sine twice, shift right 8 and multiply by `speed`. The Amiga has no 41/64 term,
+which is exactly what §1.2 says — it is the PC's frame-rate compensation and
+nothing more.
+
+The structural claims agree too: decision and integration as separate passes, no
+turn-rate limit, stop-means-stop, the ball-carrier's flat 12.5 %, the injury penalty
+applying only to human-controlled sides, and animation cadence computed inside the
+simulation.
+
+### The speed unit, and what the tables mean
+
+The Amiga derivation ([amiga/STATE.md](amiga/STATE.md) §1) pins `speed` at
+**~1/512 px/frame**: a Q7 sine peaks at 127, so a full-speed axis increment is
+`speed × 127 / 65536`. At 50 Hz:
+
+| Raw speed | px/frame | px/s | Crosses the 641-unit pitch in |
+|---|---|---|---|
+| 928 (Speed 0) | 1.81 | 91 | 7.1 s |
+| 1250 (Speed 7) | 2.44 | 122 | 5.3 s |
+| 1792 (tackle slide) | 3.50 | 175 | — |
+| 2048 (jump header) | 4.00 | 200 | — |
+
+§2.4's PC figures (81 – 110 px/s) are the same numbers through the 41/64 factor —
+the two builds agree on the tables and differ by a deliberate 36 % scale on the
+deltas, partly offset by the higher frame rate. That is the whole of the movement
+divergence.
+
+### Five disagreements
+
+1. **The flat 3-frame downtime table is not "the CPU's".** §9 reads
+   `kComputerTacklingDownTime = 3 (×8)` as a CPU-versus-human fairness asymmetry.
+   The Amiga has the same eight-entry table of 3s at asm:34763 and reaches it from
+   the **deflected-tackle** path (`sub_110C04` → `sub_110CD8`), not from a CPU test:
+   a tackle flagged as a deflection rather than a possession attempt costs a flat 3
+   frames for anybody ([amiga/CONTEST.md](amiga/CONTEST.md) §3). Two readings of one
+   table, and they imply very different game balance. **Re-check the port's caller
+   before treating this as an asymmetry to "decide about".**
+
+2. **The turn-flag search order.** §5 says the engine walks *down from direction 7*
+   to find the first permitted octant. The Amiga's
+   `find_acceptable_turn_flags_loop` (asm:43359) walks **outward from the requested
+   octant**, i.e. it picks the nearest legal direction rather than a fixed-priority
+   one. Outward-from-requested is the behaviour you would design; down-from-7 is the
+   behaviour you would get from a naive loop. They differ visibly at a corner or a
+   throw-in and only one can be right.
+
+3. **The boundary rectangles differ by two units.** §4 gives the controlled-player
+   stop test as x ∈ [79, 592], y ∈ [127, 771]; the Amiga tests the controlled player
+   against the *same* bounds as the destination clamp, x ∈ [81, 590], y ∈ [129, 769]
+   (asm:43750–43772). The sliding-tackle rectangle disagrees too: [73, 598] × [129,
+   769] here against X 73 … 598, **Y 121 … 777** on the Amiga, and the goal-mouth
+   crush strip is x ∈ [265, 406] here against **X 275 … 396** there — with the Amiga
+   cutting speed to a sixteenth where §9 records `speed >>= 4` (the same thing) but
+   a different −25 % rule for the downed case. These are small numbers with visible
+   effects at the touchline; worth a trace each.
+
+4. **Whether team updates alternate.** §1.1's one-team-per-frame alternation is a
+   significant behavioural claim — it halves each side's decision rate. Nothing in
+   the Amiga reading contradicts it, but nothing confirms it either:
+   [amiga/TIMING.md](amiga/TIMING.md) §1 records a single `UpdatePlayersAndBall` per
+   frame with `a6` pointing at one `TeamGeneralInfo`, which is *consistent* with
+   alternation but is not evidence for it. This is the highest-value thing to settle
+   next, because it changes input latency for both builds.
+
+5. **Proximity band thresholds.** The correction box in §6 gives `ballDistance ≤ 32
+   / 72 / 2450` for the three planar flags. The Amiga document could not isolate
+   these constants and lists them as open — so **this document answers the Amiga's
+   question**, not the other way round. The Amiga does supply the neighbouring
+   comparison constants used in shot resolution (512, 2048, 5000 squared ≈ 23, 45,
+   71 px), which are a different set for a different purpose; do not conflate them.
+
+### New from the Amiga, not covered above
+
+- **The off-ball grid is keyed on the ball's *predicted landing point*,** not its
+  current position (`ballNextX`/`ballNextY`, asm:22125). §7 says "the ball's
+  quadrant" without saying which ball position. Keying it on the current position
+  makes the whole team lag behind every long pass.
+- **The sub-quadrant nudge is centred.** §7 step 6 has the `×5/15` rescale; the
+  Amiga gives the full expression, `(ballNextX − columnLowerLimit − 0x33) × 5 / 15`
+  with `0x2D` on the Y axis — the constants are half a column and half a row, which
+  is what makes the offset signed and centred at roughly ±17 units.
+- **Tactic record layout.** The positional grid starts at byte **+9**, each
+  outfielder owns **35 consecutive bytes**, and byte **$171** holds a pointer to
+  another tactic to use at restarts ([amiga/AI.md](amiga/AI.md) §2). §7 step 1's
+  "`ballOutOfPlayTactics` variant" is that link.
+- **The pass-receiver override has exact thresholds.** §2.2 records "forced to 256
+  or 512"; the Amiga gives the gate: heading difference within ±5 of 256 → speed
+  256, ±6–7 → 512, beyond ±7 → no override. The receiver *slows down*, and the
+  better aligned he is the slower he goes.
+- **A goalkeeper who is not the controlled player is skipped entirely** by the speed
+  routine during live play (asm:35395), keeping whatever the keeper logic assigned.
+- **`runSlower` is × 5/8 and its writer is outside the match module** — so §2.2's
+  "goal just scored" attribution is an inference, not a read. The Amiga sees the
+  same multiplier and the same unexplained global.

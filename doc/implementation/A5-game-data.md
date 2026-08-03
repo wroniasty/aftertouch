@@ -14,12 +14,18 @@ Depends on: A4   Blocks: B9, B11, D2, E1   Wave: 3
 [../DATA.md](../DATA.md) is reference-only: we need what a football game stores, not
 SWOS's bytes. A5 defines a little-endian `ATGD` container (same discipline as A4's
 `ATAP`: pure span encode/decode, offsets not pointers, fingerprinted, versioned),
-in-memory records whose attributes are **0–15**, tactics as the 10×35 zonal grid
+in-memory records whose attributes are **0–7**, tactics as the 10×35 zonal grid
 shape stolen from [../DATA.md](../DATA.md) §4, and a career snapshot that **references
 team ids** rather than embedding mutated copies ([../DATA.md](../DATA.md) §8). A
 committed-in-code fictional league of eight teams round-trips through the format and
-projects two sides into `MatchState` as the engine's 0–15 view — the wall E1 will
+projects two sides into `MatchState` as the engine's 0–7 view — the wall E1 will
 later extend.
+
+> **Range corrected to 0–7** by [B13](B13-amiga-oracle.md) / R2. `AdjustPlayerSkills`
+> masks the packed longword with `$07777777` — three bits per nibble — so the high bit
+> is discarded on load and a stored 8 reads as 0. The 0–15 reading, and the conclusion
+> that four attribute-indexed tables were undersized, are both withdrawn:
+> eight-entry tables are correctly sized. See [../AMIGA_CHANGES.md](../AMIGA_CHANGES.md) §2.1.
 
 ---
 
@@ -51,14 +57,14 @@ later extend.
 
 [../DATA.md](../DATA.md) is explicit: not an implementation basis. Shipping SWOS's
 684-byte records would put a derivative of a copyrighted binary in the repo and glue
-us to packing bugs we do not want. The useful findings are the **nibble range**, the
+us to packing bugs we do not want. The useful findings are the **attribute range**, the
 **tactics grid shape**, and **roles separate from players**.
 
 ### 2.2 Records
 
-- **Attributes:** seven values, each 0–15: passing, shooting, heading, tackling,
+- **Attributes:** seven values, each 0–7: passing, shooting, heading, tackling,
   ball control, speed, finishing. Stored as whole bytes on disk with a validator that
-  rejects >15 — packing is optional and not worth the opacity.
+  rejects >7 — packing is optional and not worth the opacity.
 - **Position:** 0 GK, then RB, LB, D, RW, LW, M, A (same ordinals as the reference notes).
 - **Face:** 0–2. **Shirt type:** 0–3. **Kit colours:** 0–9 (palette ordinals live in
   `palette.atl` from A4).
@@ -113,7 +119,7 @@ except the projection result already sitting in `MatchState`.
 2. **`MatchState` projection fields** — attrs and sheet metadata. → compile + A3 still
    green (per-tick record unchanged).
 3. **`ApplyKickoff`** — two teams → 22 slots. → acceptance test.
-4. **`MakeFictionalLeague`** — eight teams, three tactics, attrs in 0–15. → round-trip
+4. **`MakeFictionalLeague`** — eight teams, three tactics, attrs in 0–7. → round-trip
    the whole league through `ATGD`.
 5. **Career snapshot** encode/decode with team-id references only.
 

@@ -8,7 +8,8 @@ Depends on: B2, B4, B9, B10, A5   Blocks: Wave 3 play-feel gate   Wave: 2–3
 
 **Status.** Playability update landed: ball-follow camera, landmarks, role cues,
 play HUD, A5 kickoff bootstrap, FT freeze. Live MATCH writes sparse transcripts
-to `traces/match_<seed>.txt` (plus `.atin`). Ready for the Wave 3 feel pass.
+to `traces/match_<seed>.txt` (plus `.atin`). **HOME** dumps the last ~10 s
+(dense) to `traces/match_<seed>_<nn>.txt`. Ready for the Wave 3 feel pass.
 
 ---
 
@@ -69,7 +70,7 @@ off-field):
 
 | Parameter | Starting value | Notes |
 |---|---|---|
-| Window size | ~280×175 pitch units | ~half the dead-ball box; tunable |
+| Window size | 320×200 pitch units | = the logical frame, so scale is exactly 1.0 |
 | Anchor | ball `(x,y)` planar | Ignore `z` for pan |
 | Clamp | dead-ball box `[53,618]×[100,799]` | Window stays inside; no bench slide |
 | Smoothing | optional lerp ≤ 8 u/tick | Snap is fine; ease is *not* C2 lead-ahead |
@@ -108,7 +109,7 @@ Window-pixel debug text (already not integer-scaled). Replace / extend lines:
 KO / TI-L / FK / PEN …        short name from GameState (+ Waiting if pl≠InProgress)
 P9 has  tgt=P11               controlled slot + pass target
 z=.. spd=.. spin=..           keep existing kick/aftertouch line
-tap=pass  -/+=speed  0=1x …   control legend + sim pace keys
+tap=pass  HOME=clip  -/+=speed …  control legend + sim pace / clip keys
 [HT] SPACE continue           only when phase == HalfTime
 [FT] ESC menu                 when phase == FullTime — stop Stepping
 ```
@@ -116,6 +117,10 @@ tap=pass  -/+=speed  0=1x …   control legend + sim pace keys
 Sim speed (presentation only): `-` / `=` step through
 `0.25× … 0.90× … 1.00× … 1.10× … 2.00×`; `0` resets to 1.00×. Scales the
 fixed-timestep accumulator; engine ticks stay 50 Hz when they run.
+
+**HOME clip:** keeps a 500-tick (~10 s @ 50 Hz) ring of post-Step states;
+each press writes a dense transcript `traces/match_<seed>_<nn>.txt` (does not
+replace the full-match sparse file flushed on ESC / FT / quit).
 
 Clock display: derive displayed minute/second from existing clock counters (same
 math as B2); do not invent a second clock.
@@ -206,8 +211,9 @@ answer “does the match feel right?” without squinting at a postage-stamp pit
 
 ## 6. Open questions
 
-- Exact window size (280×175 vs tighter) — tune in play, pin a default in
-  `pitch_view.hpp`.
+- ~~Exact window size — tune in play, pin a default in `pitch_view.hpp`.~~
+  Settled at 320×200: any other size scales by a non-integer factor, which
+  breaks the 16-px tile weave and blits sprites at fractional size.
 - Whether HT already auto-resumes after `stoppage_event_timer` (B2); if yes,
   banner is informational only and Space is unnecessary.
 - Menu team picker — nice; fixed two fictional clubs is enough for the gate.

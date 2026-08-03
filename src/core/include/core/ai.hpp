@@ -86,7 +86,7 @@ inline void UpdatePlayerBeingPassedTo(MatchState& s, int side) {
     // Leave an in-flight pass target alone (AI.md §2.2).
     if (tc.pass_in_progress && tc.pass_to_slot >= 0) return;
     // Shortfall receiver stays sticky once summoned.
-    if (tc.long_pass < 0 && tc.pass_to_slot >= 0) return;
+    if (tc.restart_shortfall < 0 && tc.pass_to_slot >= 0) return;
 
     const int base = side * 11;
     const int controlled = tc.controlled_slot;
@@ -107,18 +107,18 @@ inline void UpdatePlayerBeingPassedTo(MatchState& s, int side) {
     if (face >= 0 && face <= 7 && controlled >= 0 && controlled < kPitchPlayers)
         best = FindPassConeTeammate(s, side, controlled, face);
 
-    if (best < 0) {
-        int32_t best_d = 0x7fffffff;
-        for (int i = 0; i < 11; ++i) {
-            const int slot = base + i;
-            Entity& e = s.players[static_cast<size_t>(slot)];
-            if (!IsEligibleAi(e, tc, slot, controlled, kicking)) continue;
-            if (e.ball_distance < best_d) {
-                best_d = e.ball_distance;
-                best = slot;
-            }
-        }
-    }
+    // No nearest-to-the-ball fallback. There is none in the original: if nobody
+    // is in the cone there is simply no receiver, and the pass degrades to a
+    // clearance (amiga asm:34994).
+    //
+    // The fallback that used to be here is why an uncontrolled team-mate would
+    // set off after a loose ball. `pass_to_slot` is consumed in two places that
+    // treat it as a *committed receiver* — ApplyOffBallDestination freezes him,
+    // and the selection routines exclude him — so nominating the man nearest the
+    // ball as a standing "candidate" froze exactly the player who should have
+    // been selected and handed control to the second-nearest, who then ran in.
+    // A candidate is an aiming hint; only an in-flight pass has a receiver.
+    (void)kicking;
     tc.pass_to_slot = static_cast<int8_t>(best);
 }
 
@@ -129,7 +129,10 @@ inline void RefineControlledSelection(MatchState& s, int side) {
     if (tc.player_switch_timer > 0) return;
 
     const int base = side * 11;
-    const int exclude_pass = tc.pass_to_slot;
+    // Only a *committed* receiver is unselectable (amiga: the pass state makes
+    // him so). A mere aiming candidate must stay selectable, or the man nearest
+    // a loose ball is the one man you cannot have.
+    const int exclude_pass = tc.pass_in_progress ? tc.pass_to_slot : -1;
     const int exclude_kick = tc.passing_kicking_slot;
 
     int best = -1;
@@ -157,8 +160,7 @@ inline void RefineControlledSelection(MatchState& s, int side) {
 // Selection + park at spot (human + CPU). Throw-ins keep their offset pose.
 inline void PickCpuRestartTaker(MatchState& s, int side) {
     PickRestartTaker(s, side);
-    if (GetPl(s) == GameStatePl::InProgress) return;
-    if (!IsRestartTakeState(GetGameState(s))) return;
+    if (!IsActiveRestartTake(s)) return;
     if (s.globals.last_team_played_before_break !=
         static_cast<uint8_t>(side + 1))
         return;
@@ -231,9 +233,8 @@ inline void AI_SetControlsDirection(MatchState& s, int side) {
         return;
     }
 
-    // Restart take.
-    if (GetPl(s) != GameStatePl::InProgress &&
-        IsRestartTakeState(GetGameState(s)) &&
+    // Restart take (incl. post-goal / boot kickoff while Stopped).
+    if (IsActiveRestartTake(s) &&
         s.globals.last_team_played_before_break ==
             static_cast<uint8_t>(side + 1)) {
         const Dest goal = OppGoalCentre(s, side);
@@ -343,14 +344,22 @@ inline void AI_SetControlsDirection(MatchState& s, int side) {
             return;
         }
 
-        // Dribble toward goal.
-        if (d5 >= 0) {
-            const int oct = static_cast<int>(
-                ((static_cast<uint16_t>(d5) + 16u) & 0xFFu) >> 5);
-            tc.current_allowed_direction = static_cast<int16_t>(oct);
-            tc.direction = tc.current_allowed_direction;
+        // Dribble toward goal — AI.md §5.5 requires actual possession. The close
+        // band (kDistCloseSq, 72) is wider than the capture radius
+        // (kDistVeryCloseSq, 32), so a player in the 32..72 annulus would
+        // otherwise steer at the goal while unable to pick the ball up — with the
+        // goal behind him that walks him back out, and he orbits forever.
+        if (tc.player_has_ball) {
+            if (d5 >= 0) {
+                const int oct = static_cast<int>(
+                    ((static_cast<uint16_t>(d5) + 16u) & 0xFFu) >> 5);
+                tc.current_allowed_direction = static_cast<int16_t>(oct);
+                tc.direction = tc.current_allowed_direction;
+            }
+            return;
         }
-        return;
+        // Close but not owning: fall through to chase and close the last few
+        // units into the capture radius.
     }
 
     // Chase: swap to pass target if much closer.

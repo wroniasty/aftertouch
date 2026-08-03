@@ -17,7 +17,9 @@ namespace at::trace {
 inline constexpr uint32_t kMagic = 0x52545441u; // "ATTR"
 
 // Version 4: B3 MatchSurface. v1–v3 readers are retired.
-inline constexpr uint16_t kFormatVersion = 4;
+// 5: B6a adds TeamControl.restart_shortfall (split out of long_pass, which is
+//    once again the AFTERTOUCH §6 pass-loft flag).
+inline constexpr uint16_t kFormatVersion = 6; // B13 / R4: Entity::dribble_touches
 
 enum class Profile : uint8_t { kAmiga = 0, kPc = 1 };
 
@@ -43,7 +45,8 @@ inline constexpr size_t kEntityWireSize =
     4 * 2 + // is_moving, tackle_state, heading, dest_reached_state
     4 * 2 + // cards, injury_level, tackling_timer, sent_away
     4 +     // ball_distance
-    1 + 1;  // player_state, player_down_timer
+    1 + 1 + // player_state, player_down_timer
+    1;      // dribble_touches (B13 / R4)
 
 inline constexpr size_t kArenaEntityCount = 1 + kPitchPlayers + 1 + 1; // ball, players, ref, booked
 
@@ -58,7 +61,7 @@ inline constexpr size_t kTeamControlWireSize =
     3 * 2 +     // pass / switch
     5 * 2 +     // ball in/out/xy + pass_kick
     2 * 2 +     // ball_can_be_controlled, controlling dir
-    6 * 2 +     // spin / pass flags
+    7 * 2 +     // spin / pass-loft / restart_shortfall / pass flags
     6 * 2 +     // AI + won + gk_playing + reset
     1;          // secondary_fire
 
@@ -77,7 +80,8 @@ inline constexpr size_t kGlobalsWireSize =
     2 +             // sub flags
     2 * 2 +         // wait + fans
     2 * 2 +         // marked
-    2;              // own goals
+    2 +             // own goals
+    2;              // attempt_latched + whistle_suppressed (B13 / R4)
 
 inline constexpr size_t kTeamStatsWireSize = 7 * 4; // seven uint32 counters
 
@@ -210,6 +214,7 @@ constexpr void PutEntity(std::span<uint8_t> b, size_t& at, const Entity& e) {
     PutU32(b, at, static_cast<uint32_t>(e.ball_distance));
     PutU8(b, at, e.player_state);
     PutI8(b, at, e.player_down_timer);
+    PutU8(b, at, e.dribble_touches);
 }
 
 constexpr Entity GetEntity(std::span<const uint8_t> b, size_t& at) {
@@ -249,6 +254,7 @@ constexpr Entity GetEntity(std::span<const uint8_t> b, size_t& at) {
     e.ball_distance = static_cast<int32_t>(GetU32(b, at));
     e.player_state = GetU8(b, at);
     e.player_down_timer = GetI8(b, at);
+    e.dribble_touches = GetU8(b, at);
     return e;
 }
 
@@ -331,10 +337,11 @@ constexpr void PutControl(std::span<uint8_t> b, size_t& at, const TeamControl& c
     PutI16(b, at, c.ball_can_be_controlled);
     PutI16(b, at, c.ball_controlling_player_direction);
     PutI16(b, at, c.spin_timer);
-    PutI16(b, at, c.left_spin);
-    PutI16(b, at, c.right_spin);
+    PutI16(b, at, c.spin_cw);
+    PutI16(b, at, c.spin_ccw);
     PutI16(b, at, c.long_pass);
     PutI16(b, at, c.long_spin_pass);
+    PutI16(b, at, c.restart_shortfall);
     PutI16(b, at, c.pass_in_progress);
     PutI16(b, at, c.ai_timer);
     PutI16(b, at, c.ai_aftertouch_strength);
@@ -392,10 +399,11 @@ constexpr void GetControl(std::span<const uint8_t> b, size_t& at, TeamControl& c
     c.ball_can_be_controlled = GetI16(b, at);
     c.ball_controlling_player_direction = GetI16(b, at);
     c.spin_timer = GetI16(b, at);
-    c.left_spin = GetI16(b, at);
-    c.right_spin = GetI16(b, at);
+    c.spin_cw = GetI16(b, at);
+    c.spin_ccw = GetI16(b, at);
     c.long_pass = GetI16(b, at);
     c.long_spin_pass = GetI16(b, at);
+    c.restart_shortfall = GetI16(b, at);
     c.pass_in_progress = GetI16(b, at);
     c.ai_timer = GetI16(b, at);
     c.ai_aftertouch_strength = GetI16(b, at);
@@ -615,6 +623,11 @@ constexpr void PutGlobals(std::span<uint8_t> b, size_t& at, const MatchGlobals& 
     PutI16(b, at, g.marked_player_away);
     PutU8(b, at, g.num_own_goals_home);
     PutU8(b, at, g.num_own_goals_away);
+    // B13 / R4. whistle_suppressed is new here; attempt_latched is not — it was
+    // added by B12 and never reached the wire, so the "full state round-trips
+    // losslessly" claim in B1's acceptance was not quite true. Fixed with it.
+    PutU8(b, at, g.attempt_latched);
+    PutU8(b, at, g.whistle_suppressed);
 }
 
 constexpr void GetGlobals(std::span<const uint8_t> b, size_t& at, MatchGlobals& g) {
@@ -646,6 +659,8 @@ constexpr void GetGlobals(std::span<const uint8_t> b, size_t& at, MatchGlobals& 
     g.marked_player_away = GetI16(b, at);
     g.num_own_goals_home = GetU8(b, at);
     g.num_own_goals_away = GetU8(b, at);
+    g.attempt_latched = GetU8(b, at);
+    g.whistle_suppressed = GetU8(b, at);
 }
 
 constexpr void PutChronicle(std::span<uint8_t> b, size_t& at,

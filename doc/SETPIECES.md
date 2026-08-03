@@ -20,6 +20,14 @@ follow are [SIMULATION.md](SIMULATION.md) §6.
 > ([swos.asm:245586-245598](../reference/swos-port/swos/swos.asm#L245586)). Read to
 > understand the design; write our own code.
 
+> **Second oracle.** [amiga/SETPIECES.md](amiga/SETPIECES.md) traces `GameSetup`
+> (asm:41156) and `GetBallDestCoordinatesTable` (asm:39793) in the Amiga original.
+> The two readings agree on the state enum, the turn-mask bit order, the penalty-area
+> bounds and every aiming-table bias that both cover — an unusually clean match. The
+> Amiga adds the **restart placement coordinates**, which this document does not
+> have, four **corner and throw-in turn masks**, and a notable absence: **no offside
+> test exists**. See §12.
+
 ---
 
 ## 0. One-paragraph version
@@ -47,14 +55,19 @@ ball can be aimed. There is **no wall-assembly code anywhere in the game**.
 
 | Value | State | |
 |---|---|---|
+| 0 | Goal scored → kick-off | *(from the Amiga, §12)* |
+| 1, 2 | Goal kick, the two halves of the goal area | *(from the Amiga, §12)* |
 | 3 | `ST_KEEPER_HOLDS_BALL` | |
 | 4, 5 | `ST_CORNER_LEFT`, `ST_CORNER_RIGHT` | |
 | 6–8 | `ST_FREE_KICK_LEFT1/2/3` | |
 | 9 | `ST_FREE_KICK_CENTER` | |
 | 10–12 | `ST_FREE_KICK_RIGHT1/2/3` | |
+| 13 | `ST_FOUL` | §4 "otherwise" |
 | 14 | `ST_PENALTY` | |
 | 15–17 | `ST_THROW_IN_FORWARD/CENTER/BACK_RIGHT` | |
 | 18–20 | `ST_THROW_IN_FORWARD/CENTER/BACK_LEFT` | |
+| 21–30 | Period transitions and result screens | *(from the Amiga, §12)* |
+| 31 | `ST_PENALTIES` (shootout) | *(from the Amiga, §12)* |
 | 100 | `ST_GAME_IN_PROGRESS` | |
 
 Note the design decision: **position is encoded in the state, not carried as data
@@ -409,10 +422,14 @@ reimplementation to over-build. The correct amount of wall code is none.
   [BALL.md](BALL.md) §2 step 8 but the release, the throw/kick choice and the
   distribution target are unread.
 - The `ST_FOUL` restart (§4, "otherwise") — what actually happens in that state.
-- Whether the six throw-in states' `FORWARD`/`CENTER`/`BACK` component affects
-  anything beyond animation, given that only `LEFT`/`RIGHT` selects an aiming table.
-- The remaining `kLowerRightCornerBallDestDelta` values, once correctly reassembled
-  from the misparsed bytes.
+- ~~Whether the six throw-in states' `FORWARD`/`CENTER`/`BACK` component affects
+  anything beyond animation.~~ It selects **which third of the pitch** the throw is
+  in, by the Y thresholds **342** and **556** — the same two the shot-on-goal test
+  uses ([SHOOTING.md](SHOOTING.md) §9). And the six values are *relative to the
+  taking team*, not absolute. See §12.
+- ~~The remaining `kLowerRightCornerBallDestDelta` values.~~ Recoverable: all four
+  corner tables are at asm:36553–36616 in the Amiga listing, correctly parsed as
+  words. Transcribe from there rather than reassembling IDA's misparsed bytes.
 
 ---
 
@@ -439,3 +456,115 @@ reimplementation to over-build. The correct amount of wall code is none.
   wrong, fix the tactics input for the free-kick state, not by adding a wall system.
 - **Resolve taker selection before building any of this.** It is the one piece with
   no reference behaviour recorded, and guessing it will be visible immediately.
+  Partial answer in §12: for a *free kick* the Amiga scans the fouled side's
+  outfielders for whoever is nearest the opponent's goal.
+- **Make the classification tree total.** Every ball leaving the pitch must produce
+  exactly one restart; a fall-through is a hang. Assert on it.
+- **Account for the celebration `Rand` calls** (§12) in the RNG sequence even if we
+  render celebrations differently. Skipping them desynchronises every roll after the
+  first goal.
+
+---
+
+## 12. Amiga cross-check
+
+Traced independently through the Amiga original — [amiga/SETPIECES.md](amiga/SETPIECES.md).
+
+### Confirmed, exactly
+
+- **The state enum**, value for value, including the values §1 was missing (0, 1, 2,
+  13, 21–30, 31). Both readings independently recover the same numbering.
+- **The turn-mask bit order**: bit *n* = octant *n*, 0 = N, clockwise. The Amiga
+  reads the corner masks as bit patterns and gets geometrically sensible arcs, which
+  only works with §2's bit order.
+- **The CPU turn restriction.** [MOVEMENT.md](MOVEMENT.md) §5's `AND 0b10111011` is
+  the Amiga's `AND $BB` at asm:41546 — same constant, and the Amiga explains it:
+  when the restart belongs to a CPU side, octants 2 and 6 are cleared so the CPU
+  never takes a restart straight along the horizontal axis.
+- **Penalty-area bounds** X 193 … 478, Y ≤ 216 / ≥ 682 — identical to §4.
+- **Kick-off at (336, 449)**.
+- **The aiming-table biases.** Every entry the Amiga describes matches §7's literals:
+  throw-ins put ±250 on octants 0 and 4 and leave 2 and 6 alone; the penalty table
+  halves all four diagonals to ±500; the upper-left corner table replaces octant 2's
+  `(1000, 0)` with `(1000, 150)` and octant 3's `(1000, 1000)` with `(1000, 300)`.
+  Two independent transcriptions of the same data agreeing entry by entry is about
+  as good as this gets.
+- **The design principle**: a set piece is not a different mechanic, it is the same
+  kick through a different aiming table. Both documents reach it independently.
+
+### The placement coordinates §2 does not have
+
+`GameSetup` writes the same four globals this document identifies, and the Amiga
+records the actual spots:
+
+| Restart | X | Y | Camera dir | Turn mask |
+|---|---|---|---|---|
+| Kick-off | 336 | 449 | — | — |
+| Goal kick, top goal | 396 or 276 | 154 | 4 | $7C |
+| Goal kick, bottom goal | 396 or 276 | 744 | 0 | $C7 |
+| Corner, top-left | 86 | 134 | 2 | $1C |
+| Corner, top-right | 585 | 134 | 6 | $70 |
+| Corner, bottom-left | 86 | 764 | 2 | $07 |
+| Corner, bottom-right | 585 | 764 | 6 | $C1 |
+| Throw-in, right touchline | 590 | ball Y | 6 | $F1 |
+| Throw-in, left touchline | 81 | ball Y | 2 | $1F |
+
+The four corner masks and the two throw-in masks are entirely new here — §2 only
+has the kick-off, penalty and free-kick values. Read as bit patterns they are
+exactly what you would draw by hand: each corner permits the three octants pointing
+into the pitch from that flag, each throw-in the five pointing inward from that
+touchline.
+
+Note the Amiga attributes $7C / $C7 to **goal kicks** where §3 attributes them to
+**kick-off**. Both are plausible — it is one mask value used in more than one
+place — but if only one is right, the Amiga's is read directly off the goal-kick
+placement site.
+
+### Goal kicks and throw-ins use a *relative* encoding
+
+This is the thing most likely to be got wrong. Values 1–2 and 15–20 describe the
+restart **from the taking team's point of view**, so the same value maps to mirrored
+absolute geometry for the two sides.
+
+| Goal | Ball X ≥ 336 | Ball X < 336 |
+|---|---|---|
+| Top | 1 | 2 |
+| Bottom | 2 | 1 |
+
+| Touchline | Taken by | Y < 342 | 342 … 555 | Y ≥ 556 |
+|---|---|---|---|---|
+| Right (X 590) | left team | 15 | 16 | 17 |
+| Right (X 590) | right team | 20 | 19 | 18 |
+| Left (X 81) | left team | 18 | 19 | 20 |
+| Left (X 81) | right team | 17 | 16 | 15 |
+
+The named endpoints — `ST_THROW_IN_FORWARD_RIGHT` = 15 and `ST_THROW_IN_BACK_LEFT`
+= 20 — confirm the reading: the value encodes *forward/back* and *left/right*
+relative to the thrower. §5's `LEFT`/`RIGHT` selecting the aiming table by testing
+`foulXCoordinate > 336` is therefore recovering absolute geometry from the spot,
+exactly as §6 does for corners.
+
+### New, and not covered above
+
+- **There is no offside rule.** The Amiga found no test resembling one anywhere in
+  `GameSetup` or the contest code. This matches community understanding, but it is
+  worth recording as a confirmed *absence* rather than an assumption — it belongs
+  next to §8's "there is no wall" as the second thing a reimplementation is likely
+  to over-build.
+- **The post-hit whistle suppression.** Before the goal-line branch, a ball with
+  speed ≥ $300 inside X 290 … 381 with Z < 25 triggers woodwork audio *and clears
+  the referee-whistle flag* — a shot that comes back off the frame and out does not
+  get whistled as an ordinary out-of-play.
+- **Celebration length is decided in the simulation and consumes RNG.** After a
+  goal: 300 frames if the score is now level, 200 for a goal that takes a side from
+  level to a one-goal lead or from a one-goal deficit to level, 100 otherwise —
+  over a base of `Rand()/2 + 100` with a further `Rand()` added. **Two `Rand` calls
+  per goal.** An equaliser gets three times the celebration of a fourth goal in a
+  rout, which is a nice piece of design, but the reason it matters to us is the RNG
+  sequence ([AI.md](AI.md) §6).
+- **The free-kick taker is picked by position**, not by role: the fouled side's
+  outfielders are scanned for the one nearest the opponent's goal (asm:39248–39292).
+- **A partial answer flowing the other way.** The Amiga could not trace how the
+  seven free-kick states are chosen and guessed they were one per octant of the
+  foul's facing. §4 has the actual rule — two Y bands and six X slices, mirrored by
+  the offending team — and is the better reading. Feed it back.

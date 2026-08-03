@@ -61,7 +61,7 @@ bool SameLeague(const League& a, const League& b) {
 
 } // namespace
 
-TEST_CASE("Fictional league has eight teams, three tactics, attrs in 0-15") {
+TEST_CASE("Fictional league has eight teams, three tactics, attrs in 0-7") {
     const League league = MakeFictionalLeague();
     REQUIRE(league.teams.size() == 8u);
     REQUIRE(league.tactics.size() == 3u);
@@ -70,13 +70,13 @@ TEST_CASE("Fictional league has eight teams, three tactics, attrs in 0-15") {
     for (const auto& team : league.teams) {
         CHECK(team.players.size() == kSquadSize);
         for (const auto& p : team.players) {
-            CHECK(p.attrs.passing <= 15);
-            CHECK(p.attrs.shooting <= 15);
-            CHECK(p.attrs.heading <= 15);
-            CHECK(p.attrs.tackling <= 15);
-            CHECK(p.attrs.ball_control <= 15);
-            CHECK(p.attrs.speed <= 15);
-            CHECK(p.attrs.finishing <= 15);
+            CHECK(p.attrs.passing <= kAttrMax);
+            CHECK(p.attrs.shooting <= kAttrMax);
+            CHECK(p.attrs.heading <= kAttrMax);
+            CHECK(p.attrs.tackling <= kAttrMax);
+            CHECK(p.attrs.ball_control <= kAttrMax);
+            CHECK(p.attrs.speed <= kAttrMax);
+            CHECK(p.attrs.finishing <= kAttrMax);
         }
     }
 
@@ -86,6 +86,55 @@ TEST_CASE("Fictional league has eight teams, three tactics, attrs in 0-15") {
         CHECK(n.find("SWOS") == std::string::npos);
         CHECK(n.find("Sensible") == std::string::npos);
     }
+}
+
+// B13 / R2. The 0–15 → 0–7 change is only safe if the design canvas is
+// *projected* rather than clamped. Clamping would have pushed every strong team
+// to the cap and erased both axes of variation the squad table exists to
+// express, and it would have done so silently — every other test here would
+// still pass. These three checks are what make the projection falsifiable.
+TEST_CASE("the 0-7 projection preserves team and positional variation") {
+    const League league = MakeFictionalLeague();
+
+    const auto squad_total = [](const TeamRecord& t) {
+        int sum = 0;
+        for (const auto& p : t.players)
+            sum += p.attrs.passing + p.attrs.shooting + p.attrs.heading +
+                   p.attrs.tackling + p.attrs.ball_control + p.attrs.speed +
+                   p.attrs.finishing;
+        return sum;
+    };
+
+    // Team strength survives quantisation: Eastmere (strength 5) is built
+    // stronger than Castlewick (strength 1) and must still read that way.
+    const TeamRecord* strong = nullptr;
+    const TeamRecord* weak   = nullptr;
+    for (const auto& t : league.teams) {
+        if (t.id == 3) strong = &t;
+        if (t.id == 6) weak = &t;
+    }
+    REQUIRE(strong);
+    REQUIRE(weak);
+    CHECK(squad_total(*strong) > squad_total(*weak));
+
+    // Positional shape survives: a poacher finishes better than a centre-half.
+    for (const auto& t : league.teams) {
+        CHECK(t.players[10].attrs.finishing > t.players[3].attrs.finishing);
+        CHECK(t.players[3].attrs.tackling > t.players[10].attrs.tackling);
+    }
+
+    // The range is used, not saturated. If projection had degenerated into a
+    // clamp, the strongest squad would be a wall of 7s.
+    int at_cap = 0, total = 0;
+    for (const auto& p : strong->players) {
+        for (uint8_t v : {p.attrs.passing, p.attrs.shooting, p.attrs.heading,
+                          p.attrs.tackling, p.attrs.ball_control, p.attrs.speed,
+                          p.attrs.finishing}) {
+            if (v == kAttrMax) ++at_cap;
+            ++total;
+        }
+    }
+    CHECK(at_cap * 2 < total); // fewer than half the strongest squad's attrs max out
 }
 
 TEST_CASE("League round-trips through ATGD") {
@@ -232,7 +281,7 @@ TEST_CASE("ATGD encoding is explicitly little-endian") {
     team.id = 0x0201;
     SetName(team.name, "A");
     SetName(team.coach, "B");
-    team.players[0].attrs.passing = 0x0A;
+    team.players[0].attrs.passing = 0x06; // was 0x0A — AttrsValid now caps at 7 (B13 / R2)
     league.teams.push_back(team);
 
     std::vector<uint8_t> buf(LeagueByteSize(league));
@@ -248,4 +297,49 @@ TEST_CASE("ATGD encoding is explicitly little-endian") {
     const uint32_t teams_off = static_cast<uint32_t>(kHeaderSize + kTacticWireSize);
     CHECK(buf[teams_off + 0] == 0x01);
     CHECK(buf[teams_off + 1] == 0x02);
+}
+
+// The AI team slid sideways with the ball but never changed depth. Cause: the
+// tactics grid pushed the shape only when the ball row was past halfway, so the
+// four rows from the far byline to just past the centre all produced an
+// identical formation — over half the pitch in which the ball moved and the
+// team's y did not. Columns had no such dead zone, which is exactly the
+// asymmetry the C1A trace shows.
+TEST_CASE("the tactics grid responds to the ball row across the whole pitch") {
+    const League league = MakeFictionalLeague();
+    REQUIRE(!league.tactics.empty());
+
+    for (const auto& tac : league.tactics) {
+        // A midfield role: far enough from the clamps to move at every row.
+        constexpr size_t kMid = 5;
+        std::vector<int> depths;
+        for (int row = 0; row < 7; ++row) {
+            const uint8_t cell = tac.cells[kMid][static_cast<size_t>(row * 5 + 2)];
+            depths.push_back(cell & 0x0F);
+        }
+        // Monotonic in the ball row, and it actually spans a useful range.
+        for (size_t i = 1; i < depths.size(); ++i)
+            CHECK(depths[i] >= depths[i - 1]);
+        CHECK(depths.back() > depths.front());
+        CHECK(depths.back() - depths.front() >= 4);
+
+        // No four consecutive rows share a depth — that dead zone was the bug.
+        for (size_t i = 3; i < depths.size(); ++i) {
+            const bool flat = depths[i] == depths[i - 1] &&
+                              depths[i - 1] == depths[i - 2] &&
+                              depths[i - 2] == depths[i - 3];
+            CHECK_FALSE(flat);
+        }
+    }
+}
+
+TEST_CASE("no tactics cell puts a player on his own goal line") {
+    const League league = MakeFictionalLeague();
+    for (const auto& tac : league.tactics)
+        for (size_t r = 0; r < kTacticRoles; ++r)
+            for (size_t q = 0; q < kBallQuadrants; ++q) {
+                const uint8_t y = tac.cells[r][q] & 0x0F;
+                CHECK(y >= 1);
+                CHECK(y <= 14);
+            }
 }

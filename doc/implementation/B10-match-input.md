@@ -39,8 +39,14 @@ can drive the home side from keyboard or gamepad in a live MATCH.
 
 ## 2. Design
 
-Default P1: arrows or WASD, Space/Z fire. P2: IJKL + Enter. Gamepad: D-pad /
-left stick + South. ESC remains app-level leave-match.
+Default P1: arrow keys, Space fire. P2: IJKL + Enter / Right Ctrl. Gamepad:
+D-pad / left stick + South. ESC remains app-level leave-match.
+
+WASD and Z were a second P1 binding until C1b; they were dropped so the letter
+keys stay free for debug hotkeys and menu shortcuts. `SDL_GetKeyboardState` is
+polled irrespective of focus, so the app gates the poll (and its hotkeys) on
+`WantCaptureKeyboard` while a dialog has the keyboard — `PollNeutral` still
+produces one `MatchInput` per tick so transcripts stay tick-aligned.
 
 ---
 
@@ -60,7 +66,26 @@ left stick + South. ESC remains app-level leave-match.
 
 ---
 
-## 6. Open questions
+## 6. The fire state machine
+
+Per tick, per side, in `RefreshHumanFire` ([shooting.hpp](../../src/core/include/core/shooting.hpp)):
+
+| Button | `fire_counter` | Raised | Meaning |
+|---|---|---|---|
+| down, first tick | 0 → 1 | `fire_this_frame` | press edge — contest entry (B7) |
+| down | < threshold | — | charging |
+| down | ≥ threshold | `normal_fire` **every tick** | hold — shot, re-tried until strikeable |
+| released | 1 .. threshold−1 | `quick_fire` | tap — pass |
+| released | ≥ threshold | — | the shot already went |
+
+`normal_fire` is a **level**, not a pulse: the on-ball dispatch re-reads it each
+frame (SHOOTING §1), so a hold that is refused on the threshold tick — no
+direction, ball out of the close band — strikes as soon as it becomes
+strikeable rather than being swallowed ([B6a](B6a-kick-fidelity.md) §2 S3).
+`fire_counter` saturates at `kFireCounterMax` so a long hold cannot wrap into a
+tap.
+
+## 7. Open questions
 
 - Stick deadzone tuning vs traces.  
-- Tap/hold fire thresholds (B6).
+- The tap/hold threshold value itself (B6a Track M).

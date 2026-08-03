@@ -26,8 +26,8 @@ reverse-engineering notes in `docs/SWOS/`.
 A team file (`team.NNN` in `\data`) is a big-endian team count followed by fixed
 **684-byte team records**: a 76-byte header — name, tactics index, league, two kit
 colour sets, coach — and **sixteen 38-byte player records**. Player attributes are
-**packed two to a byte as 4-bit nibbles**, so every attribute has range **0–15**,
-which is the fact that matters (§3). Tactics are separate **370-byte files**: a
+**packed two to a byte as 4-bit nibbles**, but the engine masks each nibble to three
+bits on load, so the **used range is 0–7** — the fact that matters (§3). Tactics are separate **370-byte files**: a
 name plus ten players × 35 bytes, each byte a packed `(x, y)` grid quadrant saying
 "when the ball is *here*, stand *there*" — the entire off-ball AI as 350 bytes of
 data. Career saves are the same 684-byte team records in bulk followed by a large,
@@ -109,44 +109,59 @@ to random values"*. **Injuries are rolled fresh at load time, not persisted.** B
 
 ---
 
-## 3. Attributes are nibbles — range 0–15
+## 3. Attributes are nibbles — **storage is 4 bits, the used range is 0–7**
 
 `docs/SWOS/teams.txt` states it directly: *"(l.o. nibble) passing (values 0..15)"*.
-Seven attributes packed two to a byte across bytes 28–31.
+Seven attributes packed two to a byte across bytes 28–31. **The storage width is 4
+bits and that part is correct.**
 
-**This settles an open question raised in three other documents** —
-[HEADING.md](HEADING.md) §6, [TACKLING.md](TACKLING.md) §10 and
-[STATE.md](STATE.md) §5 all flag the attribute range as unresolved and consequential.
-It is 0–15. And that means two attribute-indexed tables in the engine are **too
-short**:
+> ⚠️ **Corrected.** This section previously concluded that because the nibble holds
+> 0–15, the *attribute range* is 0–15, and that four attribute-indexed tables in the
+> engine are therefore undersized. **That conclusion is wrong**, and it propagated
+> into [HEADING.md](HEADING.md) §6, [STATE.md](STATE.md) §5, [TACKLING.md](TACKLING.md)
+> §10 and [README.md](README.md)'s conventions list.
+>
+> The Amiga original's `AdjustPlayerSkills` (asm:102092) loads the packed longword
+> and masks it with **`$07777777`** — three bits per nibble, not four — then unpacks
+> seven bytes and clamps each to 7. **The high bit of every nibble is discarded on
+> load.** A stored 8 arrives as 0 and a stored 15 as 7, which is exactly the
+> long-standing community observation recorded in [LEGACY.md](LEGACY.md) §9. Every
+> attribute-indexed table in the engine has exactly eight entries because eight is
+> the right number. See [amiga/PLAYERS.md](amiga/PLAYERS.md) §1.
+>
+> The second caveat below was the strongest counter-argument, and it too was
+> mistaken: `kPlayerHeaderSpeedIncrease` has **eight** entries, not thirteen, and the
+> five apparently-positive values above index 7 belong to the next data item in the
+> segment ([HEADING.md](HEADING.md) §10).
+
+So the corrected picture:
 
 | Table | Entries | Index | Max index | Overrun? |
 |---|---|---|---|---|
-| `kPlayerHeaderSpeedIncrease` | 13 | `heading` | 15 | **yes, for 13–15** |
-| `kPlAvgTacklingBallControlDiffChance` | 8 | \|difference of averages\| | 15 | **yes, for ≥ 8** |
-| `kPlayerTacklingDownTime` | 8 | `tackling` | 15 | **yes, for ≥ 8** |
-| `kComputerTacklingDownTime` | 8 | `tackling` | 15 | **yes, for ≥ 8** |
+| `kPlayerHeaderSpeedIncrease` | **8** | `heading` | 7 | no |
+| `kPlAvgTacklingBallControlDiffChance` | 8 | \|difference of averages\| | 7 | no |
+| `kPlayerTacklingDownTime` | 8 | `tackling` | 7 | no |
+| `kComputerTacklingDownTime` | 8 | `tackling` | 7 | no |
 
-None of these clamp. All index directly with the raw attribute (or a raw
-difference) and read whatever follows the table in the data segment — exactly the
-class of bug already confirmed in [REFEREE.md](REFEREE.md) §4, where a three-byte
-overrun into the following array is documented and reproduced.
+Two things survive from the original reading and are worth keeping:
 
-Two caveats before treating this as settled:
+- **The high bit is real storage and may mean something.** It is masked off before
+  any skill use, so it cannot be skill magnitude — but preserving it in an importer
+  rather than normalising it away costs nothing and might turn out to matter.
+- **Whether shipped team data ever sets it** is still directly measurable from the
+  `team.*` files, and is now a *curiosity* about the data rather than a question
+  about engine correctness.
 
-- **Whether real team data uses the full range is a separate question.** The
-  nibble *allows* 0–15; if shipped teams cap attributes at 7, the overrun paths are
-  never reached in practice and the tables are merely mis-sized rather than buggy.
-  This is measurable directly from the shipped `team.*` files and is the natural
-  next step.
-- The `kPlayerHeaderSpeedIncrease` table's own shape argues the effective range is
-  larger than 7: it is zero at index 7 and *positive* for 8–12
-  ([HEADING.md](HEADING.md) §6). A table with five meaningful entries above 7 is not
-  a table for a 0–7 attribute.
+One thing this section did not know at all: **the unpacked nibbles are not the final
+ratings.** A factor derived from the player's transfer value is applied to every
+skill during unpack ([LEGACY.md](LEGACY.md) §9). Any tuning fitted against numbers
+read straight out of a team file will be systematically off unless that transform is
+modelled.
 
-**This is the one section of this document that affects our implementation.** Every
-attribute-indexed table we write needs a bounds policy chosen deliberately —
-clamp, assert, or faithfully reproduce the overrun — and recorded.
+**Implementation consequence, restated.** Model attributes as **0–7** internally and
+offset only at the presentation boundary. No bounds policy is needed for these four
+tables — the indices cannot exceed 7. The overrun class of bug documented in
+[REFEREE.md](REFEREE.md) §4 is real but does not apply here.
 
 ---
 
@@ -287,7 +302,8 @@ follows (making it improperly aligned)"*.
 
 - Team file: big-endian count + 684-byte records (76-byte header + 16 × 38-byte
   players); 64,000-byte hard ceiling. ✓
-- **Attributes are 4-bit nibbles, range 0–15**, packed two per byte. ✓
+- **Attributes are 4-bit nibbles**, packed two per byte — but the **used range is
+  0–7**, because the high bit of each nibble is masked off on load (§3). ✓
 - Position and face share one byte; cards and injuries share another, and
   **injuries are randomised at load, not persisted**. ✓
 - Tactics: 370 bytes, 10 players × 35 ball-quadrant → destination bytes, nibble
@@ -299,9 +315,12 @@ follows (making it improperly aligned)"*.
 
 **Open:**
 
-- **Do shipped teams actually use attributes above 7?** Directly measurable from the
-  `team.*` files and it determines whether §3's overruns are live bugs or dormant.
-  The highest-value follow-up in this document.
+- **Do shipped teams ever set the masked-off high bit?** Directly measurable from
+  the `team.*` files. No longer a correctness question (§3) — but if the bit is ever
+  set, it is carrying *something*, and nobody knows what.
+- **The value→skill transform** applied during unpack. It stands between a team
+  file's numbers and the engine's, and it is currently a black box
+  ([amiga/PLAYERS.md](amiga/PLAYERS.md) §3).
 - The ~36 KB unmapped region of career saves.
 - `TeamGame::unknownTail[686]` ([STATE.md](STATE.md) §8) — likely the in-match
   statistics, and the highlight format copies it wholesale.
@@ -317,8 +336,9 @@ follows (making it improperly aligned)"*.
 
 We are not implementing these formats, so this is short.
 
-- **Take the nibble finding seriously** (§3). It is the only thing here that
-  changes code, and it changes it in four places.
+- **Model attributes as 0–7** (§3). Read the nibbles as 4-bit storage, mask to 3
+  bits on import exactly as the original does, and keep the discarded bit somewhere
+  if it is ever set. Do not size any engine table for 0–15.
 - **Steal the tactics format's shape, not its bytes.** "For each of 35 ball
   quadrants, where does each of 10 roles stand" is an excellent representation:
   tiny, authorable by hand, trivially moddable, and it produces convincing team

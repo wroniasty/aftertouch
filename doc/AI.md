@@ -18,6 +18,16 @@ were written as questions for.
 > field names are misleading — where a name and its use disagree I say so. Read to
 > understand the design; write our own code ([LEGACY.md](LEGACY.md) §15, §17).
 
+> **Second oracle.** [amiga/AI.md](amiga/AI.md) and
+> [amiga/GOALKEEPER.md](amiga/GOALKEEPER.md) trace the same systems through the
+> Amiga original. §3 and §6 are confirmed in detail — including the tactic record
+> layout, which the two readings reconstruct independently and identically. This
+> document is **ahead** of the Amiga set on the CPU brain and on the keeper's dive
+> model, and answers what the Amiga calls its "single highest-value unknown". But the
+> Amiga has a **whole shot-resolution stage that §4 does not describe at all**: a
+> Finishing-versus-goalieSkill roll that decides goal or save *before* the keeper
+> decides whether to dive. See §10.
+
 ---
 
 ## 0. One-paragraph version
@@ -679,13 +689,31 @@ matches ([LEGACY.md](LEGACY.md) §12).
   anticipation (earlier dive commitment) and catch rate, only marginally speed. ✓
 - The RNG. ✓
 
+**Resolved by the Amiga oracle** (see §10):
+
+- ~~Whether the keeper's use of `currentGameTick` as a dice source is original or a
+  decompilation artefact.~~ **Original, and pervasive.** The Amiga independently
+  finds the frame counter used as a deterministic dice source in three separate
+  places — the goal/save roll, the goalmouth rebound scatter and the keeper's dive
+  rate — and none of them touches `Rand`. §4.7's quirk is a design decision.
+- ~~`goalieSkill` is "derived from transfer value".~~ Now with the formula:
+  `(value + 3) / 7`, plus 1 or 2, plus two competition-context ±1 adjustments,
+  clamped 0–7 ([amiga/PLAYERS.md](amiga/PLAYERS.md) §3). Non-keepers get 0.
+
 **Still open:**
 
 - Shot-chance table indices 0–2 and 21–28 are never read here. Dead data, or a path
-  the port has not reproduced?
-- `TeamTactics.unkTable[10]` — one byte per player, purpose unknown.
-- Whether the keeper's use of `currentGameTick` as a dice source is original or a
-  decompilation artefact; it makes several outcomes periodic rather than random.
+  the port has not reproduced? Index 24's neighbours (26, 27) are read by the parry
+  path per §4.6, so "never read" may be too strong.
+- `TeamTactics.unkTable[10]` — one byte per player, purpose unknown. Open on both
+  oracles; the Amiga bounds it precisely as bytes $167–$170 of the record (§10).
+- **The shot-resolution stage** (§10). If the port has an equivalent of the Amiga's
+  Finishing-vs-goalieSkill goal/save roll, this document has not found it; if it
+  does not, the two builds resolve shots by different rules and no keeper behaviour
+  is comparable across them. This is now the largest gap in the document.
+- What suppresses the CPU's random idle direction. The Amiga has a branch labelled
+  `random_direction_disallowed` (asm:45575) whose conditions it could not trace;
+  nothing here corresponds to it.
 - The tactics **byte values** themselves: this document explains the format, not the
   12 built-in formations' contents. They are extractable but are game data, not
   design ([LEGACY.md](LEGACY.md) §15).
@@ -723,3 +751,157 @@ matches ([LEGACY.md](LEGACY.md) §12).
 - **Fit the decision thresholds from traces.** The values in §7 are a strong prior
   and a cross-check, not a licence to copy the data segment
   ([LEGACY.md](LEGACY.md) §15, §17; reference-tree policy in [PLAN.md](PLAN.md) §10).
+- **Keep goal-resolution and dive-decision separate, and in that order** (§10). They
+  are independent, and merging them — deciding the save from the physics — produces
+  a keeper who is either unbeatable or useless. The original decides the *outcome*
+  first and animates it second.
+- **Do not add `Rand` where the original reads the clock.** Deterministic
+  pseudo-randomness from the frame counter is a feature: it makes outcomes
+  reproducible without threading a generator through the physics, and adding one
+  speculative draw desynchronises every subsequent gameplay roll.
+
+---
+
+## 10. Amiga cross-check
+
+Traced independently through the Amiga original — [amiga/AI.md](amiga/AI.md) and
+[amiga/GOALKEEPER.md](amiga/GOALKEEPER.md).
+
+### The zonal grid: confirmed entry by entry
+
+Both grids, both limit tables, the ±4 formation nudge, the `[81,590] × [129,769]`
+clamp, the `34 − index` / `$EF − byte` double mirror, and the `× 5/15` sub-zone
+offset all match §3 exactly. The Amiga adds the centring terms the offset uses —
+`(ballNextX − columnLowerLimit − 0x33) × 5 / 15`, with `0x2D` on Y — which are half
+a column and half a row, making the nudge signed and centred at about ±17 units.
+
+It also explains *why* the player lattice has 15 columns and not 16: `$EF` is
+`14 << 4 | 15`, so `$EF − byte` only yields `(14 − cellX, 15 − cellY)` without a
+borrow if `cellX` never exceeds 14. §3.2's asymmetric 15 × 16 grid is a consequence
+of the mirror, not an accident.
+
+One refinement to §3.3 step 3: the index is the quadrant of the ball's **predicted
+landing point** (`ballNextX`/`ballNextY`), not its current position. Keying it on
+the current position makes the whole team lag behind every long pass.
+
+### The tactic record, reconstructed identically from both sides
+
+§3.1's `TeamTactics` and the Amiga's byte offsets are the same structure seen from
+two directions:
+
+| Field | §3.1 | Amiga |
+|---|---|---|
+| `name[9]` | bytes 0–8 | "grid starts at offset **+9**" |
+| `positions[10][35]` | 350 bytes | "35 consecutive bytes per outfielder, 10 outfielders" |
+| `unkTable[10]` | 10 bytes | (unaccounted for on both sides) |
+| `ballOutOfPlayTactics` | 1 byte | "byte **$171** is a pointer to another tactic to use at restarts" |
+| **Total** | **370 bytes** | 9 + 350 + 10 + 1 = 370 ✓ |
+
+`9 + 350 + 10 = 369 = $171`. Two independent reconstructions landing on the same
+byte for the set-piece tactic link is about as strong as structural evidence gets,
+and it means §3.3 step 1's "or `ballOutOfPlayTactics` if the state is keeper's-ball
+or goal-out" is exactly right — the Amiga sees the same switch on `gameState` 1, 2
+or 3.
+
+### The RNG: confirmed, and this document is ahead
+
+The Amiga reads the same algorithm — a fixed 256-byte table walked by a position
+counter, XORed with a key refreshed when the position wraps, period **65 536**,
+unseeded. §6's extra finding, that there are **two independent streams**, has no
+counterpart in the Amiga reading; if it is right it matters, because it means
+presentation randomness cannot desynchronise gameplay.
+
+Both readings agree on the consumers and on the crucial negative: **the two most
+consequential rolls in the game do not call `Rand` at all.** The Amiga names them —
+the goal/save resolution and the goalmouth rebound scatter — and §4.7 finds the same
+pattern in the keeper's catch/deflect split. Confirmed `Rand` consumers on the
+Amiga: pitch and weather selection (×4), the kick-off coin flip, crowd chants (×3),
+restart camera and celebration (×3), cards, the keeper's penalty reach, the CPU's
+idle direction, and the tackle contest.
+
+**Two `Rand` calls happen per goal** for the celebration length
+([SETPIECES.md](SETPIECES.md) §12). Skipping them because we render celebrations
+differently would desynchronise every roll after the first goal.
+
+### We answer the Amiga's "single highest-value unknown"
+
+[amiga/GOALKEEPER.md](amiga/GOALKEEPER.md) §3 finds the dive-rate selection —
+a **16-entry index table** inside a per-side tuning block, indexed by six bits of
+the frame counter, selecting one of **eight dive rates $30000 … $68000** — and
+flags it as almost certainly the difficulty knob, with nothing in the match module
+writing it.
+
+§4.1 and §4.4 have it: the 16-entry ramp is **words 5–20 of the goalieSkill row**
+of the shot-chance table, indexed by `tick & 15`, selecting into
+`kGoalkeeperDiveDeltas`. And the Amiga's eight rates $30000 … $68000 are exactly
+§7's Amiga-mode `kGoalkeeperDiveDeltas` of **3.0 … 6.5**, step 0.5. So it is not a
+difficulty setting — it is the keeper's own skill, expressed as §4.4's anticipation
+model: a good keeper's ramp is all zeros, so he assumes the slowest dive and commits
+earliest.
+
+That is the clearest case in the whole corpus of the two oracles completing each
+other, and it should be fed back to [amiga/GOALKEEPER.md](amiga/GOALKEEPER.md).
+
+### The stage §4 is missing
+
+Before the dive decision runs at all, the Amiga has a **goal-or-save roll** in the
+shot-resolution block (asm:42569). Nothing in this document corresponds to it.
+
+Gates first — a shot only reaches resolution if ball `z` ≤ 16, the save latch is
+clear, `ballDistance` ≤ 128 (≈ 11 units), the `ballAbove17` band is clear, the
+attacking side's fire button is down, and — if the attacker is not in possession —
+`passKickTimer` ≥ **22**. That last is a 22-frame arming delay stopping a shot taken
+inside the six-yard box from resolving on the frame it is struck.
+
+Then:
+
+```
+d1 = striker.Finishing - keeper.goalieSkill + 7      ; 0 … 14
+d0 = (stoppageTimer >> 1) & 15
+if d0 < goalScoredChances[d1]:  GOAL   else  SAVE
+```
+
+`goalScoredChances` is `1, 2, 3, … 15, 0`.
+
+| Finishing − GoalieSkill | −7 | −4 | −1 | 0 | +1 | +4 | +7 |
+|---|---|---|---|---|---|---|---|
+| Probability of a goal | 6.25 % | 25 % | 43.75 % | **50 %** | 56.25 % | 75 % | 93.75 % |
+
+An evenly matched striker and keeper is **exactly 50/50** — the same design
+signature as the tackle contest ([TACKLING.md](TACKLING.md) §8) — but the curve is
+far steeper: 6.25 points of probability per attribute point against the tackle's
+3.125, spanning almost the full range rather than 50–72.
+
+On a **goal**, a save-comment latch is set to −5, the ball's speed is clamped to
+**1536**, the aftertouch window is killed, and the keeper plays the despairing dive.
+On a **save**, the latch is set to +5 and control falls through to the dive
+decision. That ±5 latch is what [AFTERTOUCH.md](AFTERTOUCH.md) §3's first guard
+reads to surrender ball control after a goal.
+
+**This is the single most important thing to reconcile.** Either the port has an
+equivalent §4 has not found, or the DOS build resolves shots by a materially
+different rule. §4.6's catch-versus-deflect roll is a *different* decision at a
+*different* point in the sequence and does not substitute for it.
+
+### Smaller confirmations and divergences
+
+- **Keeper positioning.** The Amiga reads only the linear-interpolation branch —
+  `destX = 285 + (ballX − 81) × 103/510`, `destY` into a 27-unit band — and concludes
+  there is "no angle narrowing, no sweeping, no decision". §4.2 has that same branch
+  *and* the angle-halving rule used when there is nothing urgent. This document is
+  the fuller reading; the Amiga's conclusion is true only of the branch it saw.
+- **Dive gates.** The 10-unit reflex window, the two penalty reaches (20 far, 12
+  near, on a 3:1 split), `keeperSaveDistance` 24 in Amiga mode, and the
+  "run if you can, dive only if you cannot" ordering are all confirmed. The Amiga
+  adds a contract worth asserting on: the frames-to-reach routine returns **zero to
+  mean unreachable**, not "instantly", and every call site tests for it.
+- **The CPU's two numbers.** §5.2's `D6` and `D5` match the Amiga's `d6` and `d5`
+  exactly, including the goal centres (336, 769) and (336, 129).
+- **CPU restart waits.** §5.10's 660 / 385 ticks against the Amiga's **600 / 350
+  frames** — a consistent ×1.1, which looks like a deliberate PC rescale rather than
+  a transcription difference. The Amiga adds two more: a CPU restart is gated on
+  `(stoppageTimer & 63) + 100`, a variable **100–163 frame** wait that keeps restarts
+  from looking mechanical, and a CPU kick-off after a goal will not proceed until
+  **750 frames — 15 seconds** — have passed.
+- **The CPU uses the same aftertouch code path as a human**, through the same
+  synthetic joystick. ✓ (§5.9)

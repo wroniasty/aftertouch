@@ -24,7 +24,8 @@ scripted curled-shot hash — real SWOS ATTR remains an A3 follow-up.
 
 **In:**
 
-- Tap/hold classify (`kFireHoldThreshold = 4`).
+- Tap/hold classify (`kFireHoldThreshold`; 4 planned, 12 shipped — see
+  [B6a](B6a-kick-fidelity.md) §6).
 - `ApplyKickOrPass` launch + lockout + spin open.
 - Open-play aim via provisional dest table (`kDefaultDestinations`).
 - Shot-on-goal Finishing/Velocity bonus; pass cone + pass speed bump.
@@ -105,6 +106,10 @@ AFTERTOUCH). Placeholders ship for playable Fire; refine via A3 traces.
 
 **Done when:** scripted curled-shot `HashState` stable under Amiga profile.
 
+> Superseded by [B6a](B6a-kick-fidelity.md) §3: a `HashState` pin is a
+> determinism gate, not an acceptance criterion. Six structural defects in this
+> part survived it. B6a's behavioural suite is the acceptance criterion now.
+
 ---
 
 ## 6. Open questions
@@ -112,3 +117,6 @@ AFTERTOUCH). Placeholders ship for playable Fire; refine via A3 traces.
 - Exact hold threshold vs traces.  
 - Table values and Amiga hold-power.  
 - Open-play dest table vs `getBallDestCoordinatesTable`.
+
+Structural follow-ups (curl geometry, window arming, fire level, charge
+possession, shot zone, pass loft) are [B6a](B6a-kick-fidelity.md).

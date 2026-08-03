@@ -17,8 +17,11 @@
 //  * FINGERPRINTED AND VERSIONED. Stale or foreign bytes are rejected.
 //  * OUR SCHEMA. SWOS team.* / .tac bytes are never written or required.
 //
-// Attributes are whole bytes with range 0–15. The nibble finding in DATA.md
-// section 3 is the range rule; packing two per byte is not worth the opacity.
+// Attributes are whole bytes with range 0–7 (DATA.md section 3, corrected by
+// B13 / R2 — AdjustPlayerSkills masks with $07777777, three bits per nibble, so
+// the original's high bit is discarded on load). Packing is not worth the
+// opacity; the range rule is enforced by AttrsValid below, and it is what makes
+// every eight-entry attribute table in the engine correctly sized.
 
 namespace at::data {
 
@@ -163,9 +166,10 @@ inline void GetBytes(std::span<const uint8_t> b, size_t& at, char* dst, size_t n
 }
 
 inline bool AttrOk(const PlayerAttrs& a) {
-    return a.passing <= 15 && a.shooting <= 15 && a.heading <= 15 &&
-           a.tackling <= 15 && a.ball_control <= 15 && a.speed <= 15 &&
-           a.finishing <= 15;
+    return a.passing <= kAttrMax && a.shooting <= kAttrMax &&
+           a.heading <= kAttrMax && a.tackling <= kAttrMax &&
+           a.ball_control <= kAttrMax && a.speed <= kAttrMax &&
+           a.finishing <= kAttrMax;
 }
 
 inline bool KitOk(const KitRecord& k) {

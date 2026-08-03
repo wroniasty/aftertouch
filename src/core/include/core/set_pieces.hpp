@@ -1,4 +1,5 @@
 #pragma once
+#include "core/aftertouch.hpp"
 #include "core/angle.hpp"
 #include "core/match_clock.hpp"
 #include "core/match_input.hpp"
@@ -18,6 +19,22 @@ inline constexpr uint8_t kTurnFlagsPenUpper = 0x83; // NW N NE
 inline constexpr uint8_t kTurnFlagsPenLower = 0x38; // SW S SE
 inline constexpr uint8_t kTurnFlagsKickOffTop    = 0x7C; // E..W southish
 inline constexpr uint8_t kTurnFlagsKickOffBottom = 0xC7; // E..W northish
+
+// [CANDIDATE: amiga asm:41546 and the corner/throw placement sites] — B13 / R4.
+// One mask per restart flag, each permitting exactly the octants that point into
+// the pitch from it. The corner set was previously two masks reused from the
+// penalty arcs; there are four, and they are not left/right symmetric with the
+// pair they replaced.
+inline constexpr uint8_t kTurnFlagsCornerTopLeft  = 0x1C; // octants 2, 3, 4
+inline constexpr uint8_t kTurnFlagsCornerTopRight = 0x70; // octants 4, 5, 6
+inline constexpr uint8_t kTurnFlagsCornerBotLeft  = 0x07; // octants 0, 1, 2
+inline constexpr uint8_t kTurnFlagsCornerBotRight = 0xC1; // octants 0, 6, 7
+inline constexpr uint8_t kTurnFlagsThrowLeft      = 0x1F; // octants 0..4
+inline constexpr uint8_t kTurnFlagsThrowRight     = 0xF1; // octants 0, 4..7
+
+// A CPU taker is additionally forbidden the horizontal axis (octants 2 and 6),
+// so it cannot take a restart straight along the touchline.
+inline constexpr uint8_t kTurnFlagsCpuMask = 0xBB;
 inline constexpr uint8_t kBreakCameraModeRestart = 255;  // -1
 
 inline constexpr int16_t kPenaltySpotUpperY = 187;
@@ -112,14 +129,25 @@ inline bool IsRestartTakeState(GameState gs) {
            IsGoalKickState(gs) || gs == GameState::KeeperHoldsBall;
 }
 
+// Dead-ball kickoff take: StartingGame is also the open-play marker after
+// ResumeOpenPlay, so only count it while Stopped.
+inline bool IsActiveRestartTake(const MatchState& s) {
+    if (GetPl(s) == GameStatePl::InProgress) return false;
+    const GameState gs = GetGameState(s);
+    return IsRestartTakeState(gs) || gs == GameState::StartingGame;
+}
+
+// Defined in match_engine.cpp (avoids set_pieces ↔ movement include cycle).
+void PlacePlayersAtKickoff(MatchState& s);
+
 // Throw-in / free kick: idle shortfall summons a facing-direction pass target.
 inline bool IsShortfallAssistState(GameState gs) {
     return IsThrowInState(gs) || IsFreeKickState(gs);
 }
 
 inline void ClearSpinTimers(MatchState& s) {
-    s.sides[0].control.spin_timer = -1;
-    s.sides[1].control.spin_timer = -1;
+    s.sides[0].control.spin_timer = kSpinInactive;
+    s.sides[1].control.spin_timer = kSpinInactive;
 }
 
 inline void ParkBallAtSpot(MatchState& s, int16_t x, int16_t y) {
@@ -144,19 +172,38 @@ inline void StopAllPlayers(MatchState& s) {
     }
 }
 
+// Default taker when the nearest-outfield scan finds nobody: the first player
+// still on the pitch, keeper included. Without this the fallback was a hardcoded
+// first outfielder, so a side reduced to its keeper (or a C1b sandbox side) sent
+// an off-pitch player to take the restart and play never resumed.
+inline int FirstAvailableTaker(const MatchState& s, int side) {
+    const int base = side * 11;
+    for (int i = 1; i < 11; ++i) {
+        if (!IsOffPitch(s.players[static_cast<size_t>(base + i)]))
+            return base + i;
+    }
+    if (!IsOffPitch(s.players[static_cast<size_t>(base)])) return base;
+    return -1;
+}
+
 // Select taker for the side that owns the restart (human or CPU).
 inline void PickRestartTaker(MatchState& s, int side) {
-    if (GetPl(s) == GameStatePl::InProgress) return;
-    if (!IsRestartTakeState(GetGameState(s))) return;
+    if (!IsActiveRestartTake(s)) return;
     if (s.globals.last_team_played_before_break !=
         static_cast<uint8_t>(side + 1))
         return;
 
     TeamControl& tc = s.sides[static_cast<size_t>(side)].control;
     const int base = side * 11;
-    int best = base + 1;
-    if (GetGameState(s) == GameState::KeeperHoldsBall) {
-        best = base; // keeper distributes
+    int best = FirstAvailableTaker(s, side);
+    if (best < 0) return; // side has nobody on the pitch
+    if (GetGameState(s) == GameState::KeeperHoldsBall ||
+        IsGoalKickState(GetGameState(s))) {
+        // The keeper takes his own goal kick. This used to fall through to
+        // FirstAvailableTaker, which picked an outfielder — so a goal kick was
+        // taken by a centre-back teleported onto the byline while the keeper
+        // stood on his line. Only KeeperHoldsBall was special-cased.
+        best = base;
     } else if (GetGameState(s) == GameState::Penalty) {
         int best_fin = -1;
         for (int i = 1; i < 11; ++i) {
@@ -204,10 +251,10 @@ inline void BeginRestart(MatchState& s, GameState gs, int16_t spot_x, int16_t sp
     for (int i = 0; i < 2; ++i) {
         TeamControl& tc = s.sides[static_cast<size_t>(i)].control;
         tc.ball_in_play = 0;
-        tc.long_pass = 0; // restart shortfall countdown (dead-ball reuse)
+        tc.restart_shortfall = 0; // B8 approach countdown
     }
     if (IsShortfallAssistState(gs) && taking_team >= 1 && taking_team <= 2) {
-        s.sides[static_cast<size_t>(taking_team - 1)].control.long_pass =
+        s.sides[static_cast<size_t>(taking_team - 1)].control.restart_shortfall =
             kRestartShortfallTicks;
     }
     MarkBallLoose(s);
@@ -279,10 +326,17 @@ inline void ClassifyAndBeginFoulRestart(MatchState& s, int16_t vx, int16_t vy,
 inline uint8_t TurnFlagsForOop(GameState gs, int16_t spot_x, int16_t spot_y) {
     if (IsThrowInState(gs)) {
         // Into-pitch arc: left touch N..S via E; right N..S via W.
-        return (spot_x < kCentreSpotX) ? uint8_t{0x1F} : uint8_t{0xF1};
+        return (spot_x < kCentreSpotX) ? kTurnFlagsThrowLeft : kTurnFlagsThrowRight;
     }
     if (IsCornerState(gs)) {
-        return (spot_y < kCentreSpotY) ? kTurnFlagsPenLower : kTurnFlagsPenUpper;
+        // B13 / R4 — four corner masks, not two. This used to reuse the penalty
+        // arcs and so gave both top corners the same mask, permitting a taker in
+        // the top-left to face out of the pitch. Each corner permits exactly the
+        // three octants pointing infield from that flag.
+        const bool top = spot_y < kCentreSpotY;
+        const bool left = spot_x < kCentreSpotX;
+        if (top) return left ? kTurnFlagsCornerTopLeft : kTurnFlagsCornerTopRight;
+        return left ? kTurnFlagsCornerBotLeft : kTurnFlagsCornerBotRight;
     }
     if (gs == GameState::Penalty) {
         return (spot_y < kCentreSpotY) ? kTurnFlagsPenUpper : kTurnFlagsPenLower;
@@ -315,9 +369,11 @@ inline int CountInjuredOnSide(const MatchState& s, int side) {
 
 inline void PlaceThrowInTaker(MatchState& s, int side) {
     TeamControl& tc = s.sides[static_cast<size_t>(side)].control;
-    if (tc.controlled_slot < 0 || tc.controlled_slot >= kPitchPlayers) {
+    if (tc.controlled_slot < 0 || tc.controlled_slot >= kPitchPlayers ||
+        IsOffPitch(s.players[static_cast<size_t>(tc.controlled_slot)])) {
         // Pick nearest outfield on this side to ball.
-        int best = side * 11 + 1;
+        int best = FirstAvailableTaker(s, side);
+        if (best < 0) return;
         int32_t best_d = 0x7fffffff;
         for (int i = 1; i < 11; ++i) {
             const int slot = side * 11 + i;
@@ -364,8 +420,10 @@ inline void PlaceTakerNearSpot(MatchState& s, int side) {
     TeamControl& tc = s.sides[static_cast<size_t>(side)].control;
     int slot = tc.controlled_slot;
     if (slot < 0 || slot >= kPitchPlayers ||
-        s.players[static_cast<size_t>(slot)].team_number != side + 1) {
-        slot = side * 11 + 1; // first outfield
+        s.players[static_cast<size_t>(slot)].team_number != side + 1 ||
+        IsOffPitch(s.players[static_cast<size_t>(slot)])) {
+        slot = FirstAvailableTaker(s, side);
+        if (slot < 0) return;
         tc.controlled_slot = static_cast<int8_t>(slot);
     }
     Entity& e = s.players[static_cast<size_t>(slot)];
@@ -377,28 +435,96 @@ inline void PlaceTakerNearSpot(MatchState& s, int side) {
     e.speed = 0;
 }
 
+// SIMULATION §3: team_playing_up *defends* the top goal. A ball past the top
+// byline is therefore scored by the other side, and one past the bottom byline
+// by team_playing_up. Returns 0 when team_playing_up is unset — callers skip
+// the score bump rather than guessing.
+inline uint8_t ScorerForGoalY(const MatchState& s, int16_t y) {
+    const uint8_t up = s.globals.team_playing_up;
+    if (up != 1 && up != 2) return 0;
+    return (y < kPlayableMinY) ? static_cast<uint8_t>(3 - up) : up;
+}
+
+// [CANDIDATE: amiga SETPIECES §2 placement table, asm:41573–41583]
+//
+// Where the ball is actually put for each restart. Goal kicks and corners have
+// fixed spots; only a throw-in keeps the ball's own coordinate, and only on the
+// axis along the touchline.
+inline constexpr int16_t kGoalKickXRight = 396;
+inline constexpr int16_t kGoalKickXLeft  = 276;
+inline constexpr int16_t kGoalKickYTop   = 154;
+inline constexpr int16_t kGoalKickYBot   = 744;
+inline constexpr int16_t kCornerXLeft    = 86;
+inline constexpr int16_t kCornerXRight   = 585;
+inline constexpr int16_t kCornerYTop     = 134;
+inline constexpr int16_t kCornerYBot     = 764;
+inline constexpr int16_t kThrowInXLeft   = 81;
+inline constexpr int16_t kThrowInXRight  = 590;
+
+inline Dest RestartSpot(const MatchState& s, GameState gs, int16_t bx, int16_t by) {
+    const bool top = by < kCentreSpotY;
+    if (IsGoalKickState(gs)) {
+        // Which half of the goal area it went out in picks the x.
+        return Dest{bx >= kCentreSpotX ? kGoalKickXRight : kGoalKickXLeft,
+                    top ? kGoalKickYTop : kGoalKickYBot};
+    }
+    if (IsCornerState(gs)) {
+        return Dest{bx < kCentreSpotX ? kCornerXLeft : kCornerXRight,
+                    top ? kCornerYTop : kCornerYBot};
+    }
+    if (IsThrowInState(gs)) {
+        // Pinned to the touchline; the ball keeps its own y.
+        return Dest{bx < kCentreSpotX ? kThrowInXLeft : kThrowInXRight, by};
+    }
+    (void)s;
+    return Dest{bx, by}; // free kicks and fouls are taken where they happened
+}
+
 inline void CompleteOopRestart(MatchState& s, GameState gs, bool is_goal) {
     if (is_goal) {
-        // Goal: brief walk-on stoppage, then UpdateTime resumes InProgress.
-        // (Full kick-off take / walk-on animation is later; ball returns to centre.)
         (void)gs;
-        SetGameState(s, GameState::PlayersToInitialPositions);
-        SetPl(s, GameStatePl::Stopped);
-        PlaceBallAtCentre(s);
-        s.globals.foul_x = kCentreSpotX;
-        s.globals.foul_y = kCentreSpotY;
-        s.globals.player_turn_flags = kTurnFlagsAll;
-        s.globals.break_camera_mode = kBreakCameraModeRestart;
-        s.clock.stoppage_event_timer = 50;
-        ClearSpinTimers(s);
-        for (int i = 0; i < 2; ++i)
-            s.sides[static_cast<size_t>(i)].control.ball_in_play = 0;
+        // Same scorer rule as WireOutOfPlay score bump (foul_y already set).
+        const uint8_t scorer = ScorerForGoalY(s, s.globals.foul_y);
+        uint8_t conceding = 1;
+        if (scorer == 1 || scorer == 2)
+            conceding = static_cast<uint8_t>(3 - scorer);
+
+        PlacePlayersAtKickoff(s);
+
+        const uint8_t up = s.globals.team_playing_up;
+        const bool take_defends_top =
+            (up == 1 || up == 2) ? (up == conceding) : (conceding == 1);
+        const uint8_t flags =
+            take_defends_top ? kTurnFlagsKickOffTop : kTurnFlagsKickOffBottom;
+        const uint8_t cam = take_defends_top ? uint8_t{0} : uint8_t{4};
+        BeginRestart(s, GameState::StartingGame, kCentreSpotX, kCentreSpotY,
+                     flags, cam, conceding);
+        const int take_side = static_cast<int>(conceding) - 1;
+        if (take_side >= 0 && take_side <= 1) {
+            PickRestartTaker(s, take_side);
+            PlaceTakerNearSpot(s, take_side);
+        }
         return;
     }
-    const int16_t sx = s.globals.foul_x;
-    const int16_t sy = s.globals.foul_y;
+    // B13 / R8 — restart placement (amiga SETPIECES §2, asm:41573–41583).
+    //
+    // The ball used to be restarted *where it crossed the line*. For a goal kick
+    // that leaves it sitting on the byline, off the pitch, at whatever x it went
+    // out — which is what the C1A trace shows at (439,770), a goal kick that then
+    // never resolved. Corners had the same defect. Only throw-ins take the ball's
+    // own coordinate, and even they are pinned to the touchline.
+    Dest spot = RestartSpot(s, gs, s.globals.foul_x, s.globals.foul_y);
+    const int16_t sx = spot.x;
+    const int16_t sy = spot.y;
+    s.globals.foul_x = sx;
+    s.globals.foul_y = sy;
     const uint8_t taking = TakingTeamForOop(s, gs, false);
-    const uint8_t flags = TurnFlagsForOop(gs, sx, sy);
+    uint8_t flags = TurnFlagsForOop(gs, sx, sy);
+    // B13 / R4 — a CPU taker loses the horizontal axis as well (amiga asm:41546).
+    const int taking_side = static_cast<int>(taking) - 1;
+    if (taking_side >= 0 && taking_side <= 1 &&
+        s.sides[static_cast<size_t>(taking_side)].control.player_number == 0)
+        flags = static_cast<uint8_t>(flags & kTurnFlagsCpuMask);
     const uint8_t cam = CameraForOop(gs, sy);
     BeginRestart(s, gs, sx, sy, flags, cam, taking);
 
@@ -444,7 +570,7 @@ inline void ResumeOpenPlay(MatchState& s) {
     for (int i = 0; i < 2; ++i) {
         TeamControl& tc = s.sides[static_cast<size_t>(i)].control;
         tc.ball_in_play = 1;
-        if (tc.long_pass != 0) tc.long_pass = 0;
+        if (tc.restart_shortfall != 0) tc.restart_shortfall = 0;
     }
     MarkBallLoose(s);
 }
@@ -495,7 +621,7 @@ inline void ApproachRestartReceiver(MatchState& s, int side) {
     recv.dest_x = ax;
     recv.dest_y = ay;
     tc.pass_to_slot = static_cast<int8_t>(target);
-    tc.long_pass = -1; // shortfall active: keep approaching
+    tc.restart_shortfall = -1; // shortfall active: keep approaching
 }
 
 inline void TickRestartShortfall(MatchState& s, int side) {
@@ -506,20 +632,21 @@ inline void TickRestartShortfall(MatchState& s, int side) {
         return;
 
     TeamControl& tc = s.sides[static_cast<size_t>(side)].control;
-    if (tc.long_pass > 0) {
-        --tc.long_pass;
-        if (tc.long_pass == 0) ApproachRestartReceiver(s, side);
-    } else if (tc.long_pass < 0) {
+    if (tc.restart_shortfall > 0) {
+        --tc.restart_shortfall;
+        if (tc.restart_shortfall == 0) ApproachRestartReceiver(s, side);
+    } else if (tc.restart_shortfall < 0) {
         ApproachRestartReceiver(s, side);
     }
 }
 
 inline bool IsLastManFoul(const MatchState& s, int offending_side, int victim_slot) {
     // Fouled player closer to offender's goal than any offender outfield mate.
+    // team_playing_up defends the top line, so its own goal is kPlayableMinY.
     const int16_t goal_y =
         (s.globals.team_playing_up == static_cast<uint8_t>(offending_side + 1))
-            ? kPlayableMaxY
-            : kPlayableMinY;
+            ? kPlayableMinY
+            : kPlayableMaxY;
     const Entity& victim = s.players[static_cast<size_t>(victim_slot)];
     const int32_t vdx = victim.pos.x.Whole() - kCentreSpotX;
     const int32_t vdy = victim.pos.y.Whole() - goal_y;
@@ -631,9 +758,8 @@ inline void ApplyFoulConsequences(MatchState& s, int offending_side, int tackler
 
 // Restart take: kick or throw while Stopped. Returns true if launched.
 inline bool ApplyRestartTake(MatchState& s, int side) {
-    if (GetPl(s) == GameStatePl::InProgress) return false;
+    if (!IsActiveRestartTake(s)) return false;
     const GameState gs = GetGameState(s);
-    if (!IsRestartTakeState(gs)) return false;
 
     const uint8_t taking = s.globals.last_team_played_before_break;
     if (taking != static_cast<uint8_t>(side + 1)) return false;
@@ -704,13 +830,13 @@ inline bool ApplyRestartTake(MatchState& s, int side) {
     tc.quick_fire = 0;
     tc.normal_fire = 0;
     tc.player_has_ball = 0;
-    tc.long_pass = 0;
+    tc.restart_shortfall = 0;
     tc.pass_kick_timer = kRestartLockoutTicks;
     tc.ball_can_be_controlled = 0;
     s.clock.last_team_played = static_cast<uint8_t>(side + 1);
 
     ClearSpinTimers(s);
-    if (!throw_in) tc.spin_timer = 0;
+    if (!throw_in) tc.spin_timer = kSpinArmed;
     ResumeOpenPlay(s);
     return true;
 }

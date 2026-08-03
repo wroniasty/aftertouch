@@ -29,6 +29,13 @@ inline constexpr std::array<int16_t, 8> kPlayerSpeedsGameStopped = {
 inline constexpr std::array<int16_t, 8> kInjuriesSpeedHandicap = {
     0, -96, -128, -160, -192, -224, -256, -288};
 
+// B13 / R2 invariant: an attribute-indexed table has one entry per attribute
+// value. kInjuriesSpeedHandicap is indexed by injury_level/32, not an attribute,
+// but is the same width by construction.
+static_assert(kPlayerSpeedsGameInProgress.size() == kAttrTableSize);
+static_assert(kPlayerSpeedsGameStopped.size() == kAttrTableSize);
+static_assert(kInjuriesSpeedHandicap.size() == kAttrTableSize);
+
 inline constexpr int16_t kPlayerGroundConstant = 96;
 inline constexpr int16_t kPlayerAirConstant    = 72;
 inline constexpr int16_t kMaxAnimSpeed         = 1280;
@@ -65,9 +72,8 @@ inline constexpr int16_t kOffBallMaxY = 769;
 
 // --- helpers ---------------------------------------------------------------
 
-inline int SpeedAttrIndex(uint8_t attr) {
-    return attr > 7 ? 7 : static_cast<int>(attr);
-}
+// Named for the call site; the range lives in match_state.hpp (B13 / R2).
+inline int SpeedAttrIndex(uint8_t attr) { return AttrIndex0to7(attr); }
 
 inline void StopEntity(Entity& e) {
     e.dest_x = e.pos.x.Whole();
@@ -158,22 +164,11 @@ inline Dest OffBallDestination(const MatchState& s, int side, int ordinal_1_base
     const bool defend_top = SideDefendsTop(s, side);
 
     if (ordinal_1_based == 1) {
-        // Keeper: linear map into own box (MOVEMENT §7).
-        const int32_t ball_rel_x = static_cast<int32_t>(bx) - 81;
-        int16_t gx = static_cast<int16_t>(285 + ball_rel_x * 103 / 510);
-        int16_t gy;
-        if (defend_top) {
-            gy = static_cast<int16_t>(135 + (static_cast<int32_t>(by) - 129) * 26 / 641);
-            if (gy < 135) gy = 135;
-            if (gy > 161) gy = 161;
-        } else {
-            gy = static_cast<int16_t>(737 + (static_cast<int32_t>(by) - 129) * 26 / 641);
-            if (gy < 737) gy = 737;
-            if (gy > 763) gy = 763;
-        }
-        if (gx < kOffBallMinX) gx = kOffBallMinX;
-        if (gx > kOffBallMaxX) gx = kOffBallMaxX;
-        return Dest{gx, gy};
+        // Keeper: the one Amiga map, shared with ApplyGoalkeeperAI's rest branch.
+        // This used to be a second copy of the formula (with a span of 26 rather
+        // than 27), and the copy that actually ran — the one in the keeper AI —
+        // was a different rule entirely. One function, both callers.
+        return KeeperRestDestination(s, side);
     }
 
     // Outfield: ordinal 2..11 → tactics row 0..9.
@@ -288,6 +283,18 @@ inline bool IsEligibleForControl(const Entity& e, const TeamControl& tc) {
     return true;
 }
 
+// Anyone this side could put on the ball. Ignores the B9 pass/kicker
+// exclusions: a side whose only candidate is the pass target still has a team.
+inline bool HasEligibleFieldPlayer(const MatchState& s, int side) {
+    const TeamControl& tc = s.sides[static_cast<size_t>(side)].control;
+    const int base = side * 11;
+    for (int i = 0; i < 11; ++i) {
+        if (IsEligibleForControl(s.players[static_cast<size_t>(base + i)], tc))
+            return true;
+    }
+    return false;
+}
+
 inline void UpdateControlledPlayer(MatchState& s, int side) {
     TeamControl& tc = s.sides[static_cast<size_t>(side)].control;
     const int base = side * 11;
@@ -296,6 +303,19 @@ inline void UpdateControlledPlayer(MatchState& s, int side) {
     for (int i = 0; i < 11; ++i) {
         Entity& e = s.players[static_cast<size_t>(base + i)];
         e.ball_distance = SquaredBallDistance(e, s.ball);
+    }
+
+    // Nobody to control — a side reduced to its keeper, or a C1b sandbox side
+    // built without one. Release the slot in open play so slot 0 stays on
+    // ApplyGoalkeeperAI instead of being steered by the outfield brain (which
+    // would dribble the keeper upfield). A restart taker keeps the slot until
+    // play resumes; the possession pass drops player_has_ball on its own.
+    if (GetPl(s) == GameStatePl::InProgress && !HasEligibleFieldPlayer(s, side)) {
+        if (tc.controlled_slot >= 0 && tc.controlled_slot < kPitchPlayers) {
+            StopEntity(s.players[static_cast<size_t>(tc.controlled_slot)]);
+            tc.controlled_slot = -1;
+        }
+        return;
     }
 
     if (!tc.ball_out_of_play) return; // hold slot while "in play" possession
@@ -308,7 +328,10 @@ inline void UpdateControlledPlayer(MatchState& s, int side) {
         Entity& e = s.players[static_cast<size_t>(slot)];
         if (!IsEligibleForControl(e, tc)) continue;
         // B9: exclude pass target + striker so the two selections never collide.
-        if (slot == tc.pass_to_slot || slot == tc.passing_kicking_slot) continue;
+        // As in RefineControlledSelection: only a committed receiver is excluded.
+        if ((tc.pass_in_progress && slot == tc.pass_to_slot) ||
+            slot == tc.passing_kicking_slot)
+            continue;
         if (e.ball_distance < best_d) {
             best_d = e.ball_distance;
             best = slot;
@@ -332,7 +355,8 @@ inline void ApplyControlledDestination(MatchState& s, int side) {
 
     // Restart takes: stick aims only — no translation until fire (B8 / C1a play).
     // Neutral stick keeps the last facing (throw-in default into pitch).
-    if (IsRestartTakeState(GetGameState(s))) {
+    // StartingGame only while Stopped (open play keeps StartingGame + InProgress).
+    if (IsActiveRestartTake(s)) {
         if (dir >= 0 && dir <= 7) {
             dir = ApplyTurnFlags(dir, s.globals.player_turn_flags);
             if (dir >= 0 && dir <= 7) {
@@ -369,19 +393,82 @@ inline void ApplyControlledDestination(MatchState& s, int side) {
     e.dest_y = static_cast<int16_t>(e.pos.y.Whole() + off.y);
 }
 
+// amiga PASSING §5 — the receiver of an in-flight pass gets one of two
+// destinations: his own position when the ball is coming to him, or a point 90
+// degrees off the ball's flight line when it is not, so he steps into its path.
+// We only ever did the first, which is part of why an off-target pass sailed
+// past a receiver who never moved.
+inline constexpr int32_t kReceiverOnPathTolSq = 144; // 12 units either side
+inline constexpr int16_t kReceiverStepIn      = 24;
+
+inline void ApplyReceiverDestination(MatchState& s, Entity& e) {
+    const Entity& ball = s.ball;
+    const int16_t px = e.pos.x.Whole();
+    const int16_t py = e.pos.y.Whole();
+    const int16_t bx = ball.pos.x.Whole();
+    const int16_t by = ball.pos.y.Whole();
+
+    // Perpendicular distance from the receiver to the ball's flight line, using
+    // the ball's own delta as the line direction.
+    const int32_t vx = ball.delta.x.Whole();
+    const int32_t vy = ball.delta.y.Whole();
+    if (vx == 0 && vy == 0) { // not travelling: nothing to step into
+        StopEntity(e);
+        e.speed = 0;
+        return;
+    }
+    const int32_t rx = static_cast<int32_t>(px) - bx;
+    const int32_t ry = static_cast<int32_t>(py) - by;
+    const int32_t cross = vx * ry - vy * rx;
+    const int32_t len2 = vx * vx + vy * vy;
+    // Perpendicular distance is |cross| / sqrt(len2). Squaring both sides turns
+    // the test into cross^2 <= tol^2 * len2 — integer throughout, no divide and
+    // no sqrt, so it stays inside the no-float wall.
+    const bool on_path = static_cast<int64_t>(cross) * cross <=
+                         static_cast<int64_t>(kReceiverOnPathTolSq) * len2;
+
+    if (on_path) {
+        StopEntity(e);
+        e.speed = 0;
+        return;
+    }
+    // Step 90 degrees off the flight line, toward the line.
+    const int32_t sign = (cross > 0) ? -1 : 1;
+    const int32_t nx = sign * -vy;
+    const int32_t ny = sign * vx;
+    const int32_t nlen = (nx < 0 ? -nx : nx) + (ny < 0 ? -ny : ny);
+    if (nlen == 0) {
+        StopEntity(e);
+        e.speed = 0;
+        return;
+    }
+    e.dest_x = static_cast<int16_t>(px + nx * kReceiverStepIn / nlen);
+    e.dest_y = static_cast<int16_t>(py + ny * kReceiverStepIn / nlen);
+    e.is_moving = 1;
+}
+
 inline void ApplyOffBallDestination(MatchState& s, int side, int slot) {
     Entity& e = s.players[static_cast<size_t>(slot)];
     if (IsSpecialMovementState(e)) return;
     {
         const TeamControl& tc = s.sides[static_cast<size_t>(side)].control;
         // Restart shortfall: keep walking toward the approach stand.
-        if (tc.long_pass < 0 && slot == tc.pass_to_slot &&
+        if (tc.restart_shortfall < 0 && slot == tc.pass_to_slot &&
             IsShortfallAssistState(GetGameState(s)))
             return;
-        // AI.md §2.2: pass target waits to receive.
-        if (slot == tc.pass_to_slot) {
+        // Dead-ball: squad freezes (taker aims via ApplyControlledDestination).
+        if (GetPl(s) != GameStatePl::InProgress) {
             StopEntity(e);
             e.speed = 0;
+            return;
+        }
+        // AI.md §2.2 / amiga PASSING §5: the designated receiver of an **in-flight**
+        // pass either stands still (the ball is coming to him) or steps into the
+        // ball's path (it is not). A mere aiming candidate does neither — freezing
+        // him on every tick of open play was why team-mates stopped dead for no
+        // visible reason, and why the wrong man was selected for a loose ball.
+        if (tc.pass_in_progress && slot == tc.pass_to_slot) {
+            ApplyReceiverDestination(s, e);
             return;
         }
     }
@@ -414,6 +501,26 @@ inline void ApplySpeedAndDeltasForSlot(MatchState& s, int slot, bool controlled)
         return;
     }
 
+    // Parked (dest == pos): stay still — do not reassign stopped-table speed.
+    if (e.dest_x == e.pos.x.Whole() && e.dest_y == e.pos.y.Whole()) {
+        e.speed = 0;
+        e.delta.x = Fix{};
+        e.delta.y = Fix{};
+        e.is_moving = 0;
+        SetFrameDelayFromSpeed(e);
+        if (!controlled) {
+            const Dest from{e.pos.x.Whole(), e.pos.y.Whole()};
+            const Dest to{s.ball.pos.x.Whole(), s.ball.pos.y.Whole()};
+            const int16_t h = AngleTo(from, to);
+            if (h >= 0) {
+                e.full_direction = h;
+                e.direction = static_cast<int16_t>(
+                    ((static_cast<uint16_t>(h) + 128u + 16u) & 0xFFu) >> 5);
+            }
+        }
+        return;
+    }
+
     e.speed = LookupPlayerSpeed(s, slot, controlled);
     WriteDeltasFromDest(e);
 
@@ -443,43 +550,7 @@ inline void MapInputToTeam(TeamControl& tc, const PlayerInput& in) {
 }
 
 // --- public API ------------------------------------------------------------
-
-inline void PlacePlayersAtKickoff(MatchState& s) {
-    // Ensure identity slots if Reset-only (no ApplyKickoff).
-    for (int side = 0; side < 2; ++side) {
-        if (s.sides[static_cast<size_t>(side)].control.team_number == 0)
-            s.sides[static_cast<size_t>(side)].control.team_number =
-                static_cast<uint8_t>(side + 1);
-        if (s.sides[static_cast<size_t>(side)].control.controlled_slot < 0)
-            s.sides[static_cast<size_t>(side)].control.controlled_slot =
-                static_cast<int8_t>(side * 11);
-        // Ball is capturable until a kick lockout (B6) clears this.
-        s.sides[static_cast<size_t>(side)].control.ball_can_be_controlled = 1;
-
-        const bool defend_top = SideDefendsTop(s, side);
-        for (int i = 0; i < 11; ++i) {
-            const int slot = side * 11 + i;
-            Entity& e = s.players[static_cast<size_t>(slot)];
-            e.team_number = static_cast<int16_t>(side + 1);
-            e.player_ordinal = static_cast<int16_t>(i + 1);
-            e.player_state = static_cast<uint8_t>(PlayerState::Normal);
-            const Dest d = OffBallDestination(s, side, i + 1);
-            e.pos.x = Fix::FromInt(d.x);
-            e.pos.y = Fix::FromInt(d.y);
-            e.pos.z = Fix{};
-            e.dest_x = d.x;
-            e.dest_y = d.y;
-            e.delta = {};
-            e.speed = 0;
-            e.direction = defend_top ? 4 : 0; // face attack direction
-            e.player_direction = e.direction;
-            // B12: start XI marked as having played.
-            s.sides[static_cast<size_t>(side)].squad[static_cast<size_t>(i)]
-                .half_played = 1;
-        }
-    }
-    MarkBallLoose(s);
-}
+// PlacePlayersAtKickoff declared in set_pieces.hpp; defined in match_engine.cpp.
 
 inline void MoveSprite(Entity& e) {
     if (e.delta.x.Raw() != 0) {
@@ -561,6 +632,12 @@ inline void ApplyTeamControls(MatchState& s, const MatchInput& in) {
     for (int i = 0; i < 11; ++i) {
         const int slot = base + i;
         const bool is_ctrl = (slot == controlled);
+        // Off the pitch: no tactics recall, no keeper AI. The existing dest is
+        // still integrated so a sending-off walk finishes, then he parks.
+        if (IsOffPitch(s.players[static_cast<size_t>(slot)])) {
+            ApplySpeedAndDeltasForSlot(s, slot, false);
+            continue;
+        }
         if (is_ctrl) {
             ApplyControlledDestination(s, side);
         } else if (i == 0) {
@@ -572,10 +649,13 @@ inline void ApplyTeamControls(MatchState& s, const MatchInput& in) {
         ApplySpeedAndDeltasForSlot(s, slot, is_ctrl);
     }
 
-    // Dribble after carrier speed. Skip strike/contest tick, and while Fire is
-    // held so a charged shot is not dribbled off the player's feet mid-hold.
-    if (!struck && !contested && !tc.fire_pressed && tc.fire_counter == 0)
-        ApplyDribble(s, side);
+    // Dribble after carrier speed, skipping only the tick that struck or
+    // entered a contest. Holding Fire used to suppress it so a charged shot was
+    // not kicked off the player's own foot — but the ball then stayed put while
+    // the carrier ran on, left the close band inside the hold, and the queued
+    // strike arrived as a slide (B6a / S4). Possession during a charge is
+    // ordinary possession; the strike tick short-circuits the dribble anyway.
+    if (!struck && !contested) ApplyDribble(s, side);
 
     AddCarryDistanceForCarrier(s, side);
 

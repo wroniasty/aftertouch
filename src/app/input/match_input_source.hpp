@@ -22,6 +22,10 @@ public:
     // Sample devices into MatchInput (filtered overlapping axes).
     void Poll(MatchInput& out);
 
+    // Neutral input for a tick the player does not own (a dialog has the
+    // keyboard). Still one MatchInput per tick, so traces stay replayable.
+    void PollNeutral(MatchInput& out);
+
 private:
     uint32_t PollKeyboardP1() const;
     uint32_t PollKeyboardP2() const;

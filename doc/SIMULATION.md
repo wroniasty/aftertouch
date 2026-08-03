@@ -19,6 +19,13 @@ This is the frame that [MOVEMENT.md](MOVEMENT.md), [AI.md](AI.md),
 > described only as far as I could verify. Read to understand the design; write our
 > own code ([LEGACY.md](LEGACY.md) §15, §17).
 
+> **Second oracle.** [amiga/TIMING.md](amiga/TIMING.md) traces the frame, the clock
+> and the stoppage machine through the Amiga original. It confirms the clock
+> arithmetic, the period boundaries and the away-goals rule exactly — and it shows
+> that **§1.2's wall-clock leak is a port artefact, not original behaviour**. It also
+> independently corroborates §10's most important structural claim: the off-screen
+> result generator is not in the match code at all. See §14.
+
 ---
 
 ## 0. One-paragraph version
@@ -650,19 +657,33 @@ affecting played matches.
 
 ## 12. Open questions
 
+**Resolved by the Amiga oracle** (see §14):
+
+- ~~Whether the `currentGameTick`-as-dice behaviour is original or a port artefact.~~
+  **Split answer, and both halves matter.** Using the frame counter as a dice source
+  is *original* and pervasive — three separate mechanics do it. But the **wall-clock
+  coupling that makes it non-deterministic is the port's**: the Amiga advances its
+  clock by a fixed decrement once per vertical blank and never by a variable frame
+  delta. Under the original, tick-derived dice are perfectly reproducible.
+- ~~Offside.~~ Confirmed absent in the Amiga match module too — a second independent
+  sweep finding nothing. Record it as a confirmed absence.
+- ~~The exact ball-physics constants.~~ All recovered; see [BALL.md](BALL.md) §12.
+
+**Still open:**
+
 - **The off-screen result model** (§10) — the largest single gap, and the one whose
-  absence is most visible in a career mode.
+  absence is most visible in a career mode. §14 narrows *where* it is not.
 - Whether the free-kick sub-states (`LEFT1…RIGHT3`) differ in anything but the wall
   arrangement; the positions themselves live in the `ballOutOfPlayPositions` tables,
-  which I have not extracted.
-- The exact ball-physics constants (bounce application, `strikeDestX` derivation) —
-  they belong in a ball-physics document, not here.
-- Whether the `currentGameTick`-as-dice behaviour (§1.2) is original or an artefact
-  of the port's frame pacing. This also affects [AI.md](AI.md) §4.7.
-- Offside: **no offside code was found anywhere**. Consistent with the original's
-  reputation, but worth confirming rather than assuming.
+  which I have not extracted. (And there is no wall — [SETPIECES.md](SETPIECES.md) §8.)
+- **How cards are gated.** §6.3's once-per-match strictness value compared against
+  `currentGameTick` bits has no counterpart in the Amiga, which gates the card
+  escalation on a global *and* on `Rand() & 3` (§14). Two different mechanisms for
+  the same decision; at most one is right for either build.
 - The substitution flow and the `g_waitForPlayerToGoInTimer` sequence
   ([LEGACY.md](LEGACY.md) §4) — touched here only where it intersects selection.
+- Whether `prolongLastMinute` (§3.2) exists on the Amiga at all. The Amiga reads the
+  end-of-period path as a flat 50-frame grace with no extension condition (§14).
 
 ---
 
@@ -692,5 +713,198 @@ affecting played matches.
 - **Decide the CPU booking bias deliberately.** The original declines to book a CPU
   player who already has a card. That is a choice, not a law.
 - **Treat off-screen results as a pluggable module.** It is genuinely separate from
-  the match engine in the original too, and we can improve it without betraying
-  anything.
+  the match engine in the original too — confirmed twice, from two binaries (§14) —
+  and we can improve it without betraying anything.
+- **Preserve the player sweep order.** Players update in index order and each sees
+  the already-updated positions of those before it and the stale positions of those
+  after (§14). It is asymmetric, it is real, and it is the easiest place to
+  introduce a divergence that only surfaces hundreds of ticks later in a trace.
+- **Model the stoppage machine explicitly with the timer values in §14.** The 50/75
+  split and the CPU's 350/600/750 timeouts are what make a CPU-versus-CPU match take
+  the length it does, and they are cheap now and expensive to fit later.
+
+---
+
+## 14. Amiga cross-check
+
+Traced independently through the Amiga original — [amiga/TIMING.md](amiga/TIMING.md).
+
+### The clock: arithmetic confirmed, wall-clock coupling refuted
+
+The Amiga's `UpdateTime` (asm:26101) is §3.1 without the frame delta:
+
+```
+secondsSwitchAccumulator -= timeDelta          ; 30 / 18 / 12 / 9
+if secondsSwitchAccumulator < 0:
+    secondsSwitchAccumulator += 49
+    gameSeconds += 1                            ; <-- not += lastFrameTicks
+```
+
+`timeDelta` is picked once at `InitGame` from a four-entry table (asm:26526) holding
+exactly §3.1's `30, 18, 12, 9`, and the reload is exactly the Amiga column's 49. So
+the clock model is confirmed — **and the `+= swos.lastFrameTicks` in §3.1 has no
+counterpart.** On the original, one vertical blank advances the accumulator by
+exactly one step, the simulation is fixed-step end to end, and there is no path by
+which a slow machine skips dice values.
+
+That reframes §1.2 and §1.3 considerably. The determinism hazard is the *port's*
+frame pacer, not SWOS's design. §13's first recommendation — one fixed-step tick,
+everything derived from the tick count — is therefore not a departure from the
+original at all. It is a restoration.
+
+Working the four settings through at 50 Hz corroborates the frame rate itself:
+
+| Setting | `timeDelta` | Frames per game-second | Frames per 45′ half | Full match |
+|---|---|---|---|---|
+| 0 | 30 | 1.633 | 4 410 | ≈ 3 min |
+| 1 | 18 | 2.722 | 7 350 | ≈ 5 min |
+| 2 | 12 | 4.083 | 11 025 | ≈ 7½ min |
+| 3 | 9 | 5.444 | 14 700 | ≈ 10 min |
+
+Four arbitrary constants plus an arbitrary reload of 49 landing on the exact four
+options a player sees in the menu is strong evidence that both the 50 Hz assumption
+and the reading of the clock are right.
+
+### Minutes are packed decimal
+
+New, and it explains something odd. `gameTime` is a **longword of four decimal
+digits**, one per byte, incremented with manual carry at 10. That is why the
+comparison points look the way they do in a raw listing:
+
+| Comparison | Means |
+|---|---|
+| `gameTime == $405` | minute 45 |
+| `gameTime == $900` | minute 90 |
+| `gameTime == $10005` | minute 105 |
+| `gameTime == $10200` | minute 120 |
+
+The format exists so the scoreboard can render digits without dividing. §3.2's
+period boundaries — 45, 90, 105, 120 — are exactly these. Store minutes as an
+integer and format at the boundary, but keep the comparison points as named
+constants; they are the real content.
+
+### The frame order, and one determinism detail §1.1 is missing
+
+The Amiga's per-frame chain matches §1.1's shape: clock, then input, then the ball,
+then the players, then presentation. Input is latched **once**, into the team
+structs, and nothing re-reads the hardware later in the frame. The ball moves before
+the players, so every player reacts to a ball position that already includes this
+frame's physics.
+
+What §1.1 does not say: **players are swept in a fixed index order, 0 to 10, and
+each writes its results immediately.** A player at index 3 therefore sees the
+already-updated positions of players 0–2 and the stale positions of 4–10. The Amiga
+document is emphatic that this asymmetry is real and must be preserved.
+
+Nothing in the Amiga reading confirms or refutes §1.1's one-team-per-frame
+alternation. It records a single `UpdatePlayersAndBall` per frame with a register
+pointing at one team, which is consistent with alternation but is not evidence for
+it. Still the highest-value open item across the whole corpus
+([MOVEMENT.md](MOVEMENT.md) §13).
+
+### Periods, injury time, and the away-goals rule
+
+Confirmed exactly: the boundaries at 45 / 90 / 105 / 120, the end-of-period latch
+setting `gameSeconds = −1` with a **50-frame** countdown (§11's Amiga column), and
+the `halfPlayed` promotion 0 → 1 → 2 that feeds career appearances.
+
+The away-goals rule is confirmed as §8 describes it, down to the implementation:
+each side's away-goal tally is **doubled** and added to the other leg's total. Two
+readings of an unusual arithmetic trick agreeing is worth noting.
+
+**One gap.** The Amiga reads the 50 frames as the whole of injury time — *"a flat
+fifty frames, not a computed allowance"* — and found no equivalent of §3.2's
+`prolongLastMinute`. §3.2 is the richer and more specific reading and is probably
+right for the port; whether the Amiga has the same extension condition and it was
+simply not traced is open.
+
+### The stoppage machine, in detail §2 does not have
+
+`RunStoppageEventsAndSetAnimationTables` (asm:37250) stages the break on
+`breakCameraMode`:
+
+| Stage | Meaning | Duration |
+|---|---|---|
+| 0 | Play live | — |
+| 1 | Ball at rest, break begins | 50 frames, or **75 after a goal** |
+| 2 | Positions being taken up, ball placed | until players are set |
+| −1 | Restart armed | until fire, or the CPU's timeout |
+
+Stage 1 **will not begin until both of the ball's horizontal deltas are zero** — the
+break waits for the ball to actually stop, it is not triggered by the whistle. The
+one exception is a keeper holding the ball (`gameState` 3), which skips the wait.
+Auto-replay and highlight-save hooks fire during stage 1, gated so that replays are
+offered for goals and near-misses but not for throw-ins.
+
+A human side ends the stoppage by pressing fire, from either joystick and either
+coach slot. A CPU-versus-CPU match uses timers instead: **600 frames** on the
+half-time and full-time result screens, **350** otherwise, and a CPU kick-off after
+a goal will not proceed until **750 frames — 15 seconds** — have passed. §11's
+`stoppageEventTimer` of 100 / 150 / 110 is a different set of timers for the period
+transitions and does not conflict.
+
+While stopped, players still move but at reduced speed through two ramps, and
+outfielders use the *flatter* `playerSpeedsGameStopped` table
+([MOVEMENT.md](MOVEMENT.md) §13) — everyone walks back at nearly the same pace
+regardless of ability, which is why the fastest player has no advantage getting to a
+throw-in.
+
+### Out of play: confirmed, with one correction
+
+The corner and goal-kick spots in §5.4 match the Amiga's placement table exactly,
+turn masks included. The throw-in y thirds 342 / 556 match, and the Amiga adds that
+they are the **same two thresholds the shot-on-goal test uses**
+([SHOOTING.md](SHOOTING.md) §9) — one pitch division serving two purposes, worth
+sharing as a named constant.
+
+**§5.3's near miss is not "no gameplay effect".** The Amiga reads the same test —
+speed ≥ $300 (768), X 290 … 381, Z < 25 — and finds it *also clears the
+referee-whistle flag*, so a shot that comes back off the frame and out is not
+whistled as an ordinary out-of-play. Three identical constants and one extra
+consequence: the constants confirm the reading, and the consequence should be added
+to §5.3.
+
+Goal-mouth geometry differs by one unit as it does in [BALL.md](BALL.md) §12 —
+§5.1's `x ∈ [303, 367]` against the Amiga's 302 … 366 — almost certainly an
+inclusive/exclusive convention difference in the two transcriptions.
+
+### Cards: two different mechanisms
+
+§6.3's model is a per-match strictness value, drawn once, compared against
+`(currentGameTick & 0x1E) >> 1`, with a last-man test flipping 12.5 % red to 87.5 %
+red. The Amiga's card path (`sub_111388`, asm:36096) is gated on a global *and* on
+`Rand() & 3` — roughly one in four, when a difficulty flag permits — with no
+strictness table and no last-man test found.
+
+These are not variations on one design; they are different designs. §6.3 is much
+more specific and carries real tables, so it is likely the better reading of the
+port. Whether the Amiga does the same thing and it was not traced, or the two builds
+genuinely differ, is now an explicit question. It matters: §6.3's match-length
+scaling is called out in §13 as an idea worth stealing.
+
+Both readings agree on the important negative, though: **the foul decision itself
+contains no randomness.** Only the card draw touches the RNG
+([TACKLING.md](TACKLING.md) §12).
+
+### §10, corroborated from the other side
+
+The Amiga match module is a separate overlay (`swos4.dk1`/`dk2`/`dku`), and its
+string table contains match statistics, tactics, substitutions, replay and disk I/O
+— no division names, no fixture or league-table strings, no career vocabulary. A
+sweep for routines calling `Rand` three or more times, the shape any goal-generating
+simulation must have, returns exactly five, and each is identifiable: pitch and
+weather selection, the kick-off coin flip, celebration length and restart camera,
+the crowd-chant scheduler, and crowd reactions. **None produces a scoreline.**
+
+So §10's structural claim — that off-screen results live outside the match engine —
+is now confirmed from two independent binaries. The closest relative *inside* the
+match code is the goal/save resolution ([AI.md](AI.md) §10), a skill-difference
+lookup against a sixteen-entry chance table. Nothing in either match binary
+constrains a result simulator, which means §13's "treat it as a pluggable module" is
+not a compromise; it is the correct architecture.
+
+One caveat for §1.3: the Amiga reads a **single** `Rand` stream, where §1.3 and
+[AI.md](AI.md) §6 find two (`Rand`/`Rand2`). §10 relies on `Rand2` keeping result
+generation off the match engine's stream. If the second stream is a port addition,
+that isolation does not exist in the original — worth checking before depending on
+it.

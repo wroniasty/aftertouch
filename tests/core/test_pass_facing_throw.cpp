@@ -83,7 +83,7 @@ TEST_CASE("throw-in tap targets pass_to with lower loft than hold") {
 TEST_CASE("throw-in shortfall summons approach receiver") {
     MatchState s{};
     BeginRestart(s, GameState::ThrowInCentreLeft, 70, 400, 0x1F, 4, 1);
-    CHECK(s.sides[0].control.long_pass == kRestartShortfallTicks);
+    CHECK(s.sides[0].control.restart_shortfall == kRestartShortfallTicks);
 
     s.sides[0].control.player_number = 1;
     s.sides[0].control.controlled_slot = 1;
@@ -107,7 +107,7 @@ TEST_CASE("throw-in shortfall summons approach receiver") {
         ApplyTeamControls(s, in);
     }
 
-    CHECK(s.sides[0].control.long_pass == -1);
+    CHECK(s.sides[0].control.restart_shortfall == -1);
     CHECK(s.sides[0].control.pass_to_slot >= 0);
     CHECK(s.sides[0].control.pass_to_slot != thrower);
     const int recv = s.sides[0].control.pass_to_slot;
@@ -140,7 +140,7 @@ TEST_CASE("free kick tap targets pass_to") {
 TEST_CASE("free kick shortfall summons approach receiver") {
     MatchState s{};
     BeginRestart(s, GameState::FreeKickCentre, 336, 400, kTurnFlagsAll, 4, 1);
-    CHECK(s.sides[0].control.long_pass == kRestartShortfallTicks);
+    CHECK(s.sides[0].control.restart_shortfall == kRestartShortfallTicks);
 
     s.sides[0].control.player_number = 1;
     s.sides[0].control.controlled_slot = 1;
@@ -166,7 +166,7 @@ TEST_CASE("free kick shortfall summons approach receiver") {
         ApplyTeamControls(s, in);
     }
 
-    CHECK(s.sides[0].control.long_pass == -1);
+    CHECK(s.sides[0].control.restart_shortfall == -1);
     CHECK(s.sides[0].control.pass_to_slot >= 0);
     CHECK(s.sides[0].control.pass_to_slot != taker);
     const int recv = s.sides[0].control.pass_to_slot;

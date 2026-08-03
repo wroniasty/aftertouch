@@ -117,12 +117,17 @@ Active only when `game_state_pl != InProgress`. Allowed whole units:
 
 ### 2.6 Goal frame
 
+Bar: mouth x and `z > 15`. Post: thin strips (~8u) beside the mouth uprights
+only — clear byline exits in the wider attempt band fall through to OOP
+(corner / goal-kick / goal).
+
 When past byline (`y < 129` or `y > 769`):
 
 - **Bar** — mouth x and `z.whole() > 15`: negate `delta.z`, restore `z`, nudge
   saved `y` by one whole unit, then converge.
-- **Post** — attempt-band x outside mouth: `reverseDestY`, clear both spin
-  timers, then converge.
+- **Post** — thin strips (~8u) beside the mouth uprights only (not the full
+  attempt band): `reverseDestY`, clear both spin timers, then converge. Clear
+  byline exits elsewhere fall through to OOP (corner / goal-kick / goal).
 - Converge: `speed -= speed >> 2`, restore `x/y` from saved (plus bar y nudge).
 
 Net / own-goal / commentary coin-flip are out of scope (coin-flip intentionally

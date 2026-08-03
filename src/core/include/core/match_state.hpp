@@ -43,8 +43,10 @@ enum class PlayerState : uint8_t {
     Unknown            = 255
 };
 
+// Serialised into every ATTR record — append only, never reorder.
 enum class MatchPhase : uint8_t {
-    KickOff, InPlay, Goal, HalfTime, FullTime
+    KickOff, InPlay, Goal, HalfTime, FullTime,
+    SetPiece  // stopped for a throw-in / corner / goal kick / free kick
 };
 
 // SIMULATION.md §2 — coarse mode (gameStatePl).
@@ -90,7 +92,31 @@ enum class GameState : uint8_t {
     Penalties                 = 31
 };
 
+// ---------------------------------------------------------------------------
+// Player attributes — range and indexing (DATA.md §3, corrected by B13 / R2).
+// ---------------------------------------------------------------------------
+//
+// The range is **0–7**, not 0–15. `AdjustPlayerSkills` (amiga asm:102092) masks
+// the packed longword with $07777777 — three bits per nibble — then clamps each
+// unpacked byte to 7, which is why a stored 8 reads as 0 in the original. Every
+// attribute-indexed table therefore has eight entries because eight is correct;
+// the earlier "four undersized tables" finding is withdrawn.
+//
+// `AttrIndex0to7` stays as defence in depth. It can no longer fire on data that
+// came through A5's validator, and that is the point: a clamp that cannot fire is
+// cheap, and the day someone hand-builds a state in a test is the day it earns
+// its keep. See AMIGA_CHANGES.md §2.1.
+inline constexpr uint8_t kAttrMax        = 7;
+inline constexpr size_t  kAttrTableSize  = 8;
+
+inline constexpr int AttrIndex0to7(uint8_t attr) {
+    return attr > kAttrMax ? static_cast<int>(kAttrMax) : static_cast<int>(attr);
+}
+
 // Pitch geometry constants used by clock injury-time and OOP helpers (SIMULATION §5).
+// The penalty area below is confirmed by the Amiga reading character for character
+// (X 193…478 × Y ≤ 216 / ≥ 682) — see set_pieces.hpp kPenBoxXMin/Max, and B6a §6's
+// coordinate-scale question, which this settles in the engine's favour.
 inline constexpr int16_t kCentreSpotX     = 336;
 inline constexpr int16_t kCentreSpotY     = 449;
 inline constexpr int16_t kPlayableMinX    = 81;
@@ -139,7 +165,13 @@ struct Entity {
     int32_t ball_distance = 0;
     uint8_t player_state = static_cast<uint8_t>(PlayerState::Normal);
     int8_t  player_down_timer = 0;
-    uint8_t _pad0 = 0;
+    // B13 / R4 — the dribble touch counter (amiga Sprite +$6C `unkBallTimer`).
+    // Incremented on every dribble touch where the carrier's octant differs from
+    // the stored kick direction; when it passes a Ball-Control-derived threshold
+    // the carrier loses the ball. Reset on gaining possession. This is what makes
+    // Ball Control the most consequential attribute in the game, and CONTROL.md
+    // §4 had losing the ball happening only through a tackle.
+    uint8_t dribble_touches = 0;
     uint8_t _pad1 = 0;
 };
 
@@ -255,11 +287,17 @@ struct TeamControl {
     int16_t ball_can_be_controlled = 0;
     int16_t ball_controlling_player_direction = 0;
 
-    int16_t spin_timer = -1;           // -1 = aftertouch inactive
-    int16_t left_spin = 0;
-    int16_t right_spin = 0;
-    int16_t long_pass = 0; // also: FK/throw shortfall ticks (>0) / active (-1)
-    int16_t long_spin_pass = 0;
+    // -1 = inactive, -2 = armed this tick (window opens next), 0..9 = live.
+    // The latch flags name the rotation of the stick relative to the *kick*,
+    // not a screen side: spin_cw is (joy - kick) & 7 in 1..3. Naming them
+    // left/right was what put a counter-clockwise vector in the E/W rows of
+    // kKickSpinFactor, so the names are load-bearing (B6a / S1).
+    int16_t spin_timer = -1;
+    int16_t spin_cw = 0;
+    int16_t spin_ccw = 0;
+    int16_t long_pass = 0;             // aftertouch pass loft (AFTERTOUCH §6)
+    int16_t long_spin_pass = 0;        // loft + curl on the same pass
+    int16_t restart_shortfall = 0;     // B8 FK/throw approach: ticks (>0) / active (-1)
     int16_t pass_in_progress = 0;
 
     int16_t ai_timer = 0;
@@ -270,8 +308,8 @@ struct TeamControl {
     int16_t reset_controls = 0;
     uint8_t secondary_fire = 0;
     uint8_t _pad_end0 = 0;
-    uint8_t _pad_end1 = 0;
-    uint8_t _pad_end2 = 0;
+    // _pad_end1/2 became restart_shortfall above: TeamControl's size is load-
+    // bearing for MatchSide's unique-object-representation guarantee (A2 §2.6).
 };
 
 static_assert(std::has_unique_object_representations_v<TeamControl>);
@@ -461,7 +499,12 @@ struct MatchGlobals {
     uint8_t  num_own_goals_home = 0;
     uint8_t  num_own_goals_away = 0;
     uint8_t  attempt_latched = 0; // B12: one latch per shot toward goal
-    uint8_t  _pad0 = 0;
+    // B13 / R4 — near-miss whistle suppression (AMIGA_CHANGES §2.3). A shot that
+    // comes back off the frame and goes out is not whistled as an ordinary
+    // out-of-play. SIMULATION.md §5.3 had the near-miss test recorded as "no
+    // gameplay effect, just commentary"; three of its four constants matched and
+    // the fourth consequence was simply not noticed.
+    uint8_t  whistle_suppressed = 0;
 };
 
 static_assert(std::has_unique_object_representations_v<MatchGlobals>);
@@ -553,6 +596,34 @@ struct MatchState {
 
 static_assert(std::is_trivially_copyable_v<MatchState>);
 static_assert(std::has_unique_object_representations_v<MatchState>);
+
+// ---------------------------------------------------------------------------
+// Off-pitch slots — sent off (B8) or never spawned (C1b sandbox mode).
+//
+// The arena is fixed at 22 entities, so "not playing" is a marked slot, not a
+// shorter array. cards < 0 is the marker the engine already used for a sending
+// off; one predicate keeps kickoff placement, tactics recall and every
+// selection loop agreeing on who is actually out there.
+// ---------------------------------------------------------------------------
+
+inline constexpr int16_t kOffPitchParkX = -40; // clear of the dead-ball box
+
+inline bool IsOffPitch(const Entity& e) { return e.cards < 0; }
+
+inline void ParkOffPitch(Entity& e) {
+    e.cards = -1;
+    e.sent_away = 1;
+    e.visible = 0;
+    e.pos.x = Fix::FromInt(kOffPitchParkX);
+    e.pos.y = Fix::FromInt(kCentreSpotY);
+    e.pos.z = Fix{};
+    e.delta = {};
+    e.dest_x = kOffPitchParkX;
+    e.dest_y = kCentreSpotY;
+    e.speed = 0;
+    e.is_moving = 0;
+    e.player_state = static_cast<uint8_t>(PlayerState::Normal);
+}
 
 // Raise auto-select gate for both sides (AI.md §2.1 / MOVEMENT.md §6).
 // Cleared per-side while that side holds the ball (possession.hpp).

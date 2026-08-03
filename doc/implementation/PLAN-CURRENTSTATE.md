@@ -26,7 +26,7 @@ A5 was scheduled for Wave 3 but is implemented early. Wave 2 playable slice: key
 | **A1** | Kernel | **done** | Build, walls, skeleton — PLAN.md §8 |
 | **A2** | Determinism primitives | **done** | Fix, Amiga kernel, RNG, HashState; committed hash gate |
 | **A3** | Trace harness | **done** | Format, differ+drift, corpus, viewer; stub-oracle refs until SWOS recorder runs |
-| **A4** | Asset pipeline | **partial** | Format + `assetc` + `IAssetSource`/placeholder/imported; first-launch prompt still open |
+| **A4** | Asset pipeline | **partial** | Format + `assetc` + `IAssetSource`/placeholder/imported; first-launch prompt still open. §6.1/6.2/6.5 resolved by C3 |
 | **A5** | Game data | **done** | Fictional league → `MatchState`; `ATGD` round-trip |
 | **A6** | Test infrastructure | **done** | `ctest` suite, golden wedge, CI workflow, core tests sans SDL |
 
@@ -41,20 +41,24 @@ A5 was scheduled for Wave 3 but is implemented early. Wave 2 playable slice: key
 | **B3** | Ball physics | **done** | Scripted trajectory hash + OOP wire green |
 | **B4** | Player movement | **done** | 22 players, scripted 200-tick HashState pin |
 | **B5** | Possession | **done** | Bands, capture/dribble, dribble-turn HashState pin |
-| **B6** | Kicking | **done** | Tap/hold launch, aftertouch, curled-shot HashState pin |
+| **B6** | Kicking | **partial** | Structure landed; B6a fixed six structural defects, timing constants still unfitted |
 | **B7** | Contests | **done** | Slide, foul, contest RNG, headers; contest-sequence HashState pin |
 | **B8** | Set pieces & referee | **done** | Restarts, aim tables, cards/injury, ref machine; restart-cycle HashState |
 | **B9** | AI | **done** | Selection, GK, CPU brain-as-joystick; CPU-vs-CPU + HashState pin |
 | **B10** | Match input | **done** | Keyboard/gamepad → MatchInput (seven-field path) |
 | **B12** | Performance rating | **done** | Chronicle + match_stats + band weights; HashState unchanged by compute |
 | **B11** | Result simulation | **done** | Scripted/Table/Engine `IResultSimulator`; envelope tests |
+| **B13** | Amiga oracle incorporation | **partial** | R1–R5 landed, `ctest` green; restart placement coordinates outstanding, six disagreements instrumented but unsettled |
 
-### Part C (Wave 2–3 slice)
+### Part C (Wave 2–4)
 
 | ID | Part | Status | Acceptance |
 |---|---|---|---|
 | **C1a** | Debug match view | **done** | Follow-cam + landmarks + play HUD; A5 kickoff; FT freeze; V toggles full pitch |
-| **C1** | Render core (full) | **not started** | Atlas / tiles / weather — Wave 4 |
+| **C1** | Render core (full) | **done** | Original stadium tiles + palette sprites at integer scale |
+| **C2** | Camera | **done** | Five-mode priority, lead offset, ease + cap, two-stage clipping |
+| **C3** | Kits, animation, ball, pitch | **done** | Kit palettes, frame stepper in core, real ball + shadow, shirt number |
+| **C1b** | Sandbox match mode | **done** | N players + attrs vs a lone keeper, chosen ends, R resets to the same kickoff |
 
 ---
 
@@ -94,6 +98,38 @@ Subfile: [B12-performance-rating.md](B12-performance-rating.md)
 | Golden / corpus / hash re-pins (`match_stats` wire) | landed |
 
 Done-when met locally: single 1–10 + expanded breakdown; compute is post-match only.
+
+---
+
+## B13 — Amiga oracle incorporation — **partial**
+
+Subfile: [B13-amiga-oracle.md](B13-amiga-oracle.md)
+
+| Work item | State |
+|---|---|
+| R1 doc propagation 0–15 → 0–7 across `doc/implementation/` | landed |
+| R2 heading table 13 → 8; attribute range 0–7; squad projection | landed |
+| R2 `static_assert` one entry per attribute on every indexed table | landed |
+| R3 Amiga launch / curl / decay / keeper-reach values; signed shot bonuses | landed |
+| R3 distance-banded pass strength | landed (banding structure sourced, interior ours) |
+| R4 dribble touch-count (+ `ATTR` **v6**) | landed |
+| R4 goal-versus-save resolution stage (consumes no RNG) | landed |
+| R4 goalmouth scatter; near-miss whistle flag | landed |
+| R4 four corner turn masks + CPU horizontal-axis denial | landed |
+| R4 celebration two-draw RNG cost | landed |
+| R4 restart placement coordinates (goal-kick X, symmetric state encoding) | **not started** |
+| R5 six disagreement switches in `profile.hpp`, defaulting to reading A | landed |
+| Re-pins: 5 hash pins, golden, both corpus pairs, four cycles | landed |
+
+B13 returns to **done** when the restart placement coordinates land. The six
+disagreements are *instrumented, not settled* — each needs one targeted trace
+([A3](A3-trace-harness.md) item 4), and that is deliberate.
+
+Two pre-existing defects fell out of the re-pin discipline and are fixed: the
+committed corpus had been `ATTR` v4 since B6a bumped the format to v5 and was
+never regenerated (the corpus check compares committed files against each other,
+so it cannot detect its own staleness), and `attempt_latched` had never reached
+the wire despite B1's acceptance claiming full-state round-trip.
 
 ---
 
@@ -152,9 +188,9 @@ Done-when met locally via scripted HashState pin. Corpus contest *distribution* 
 
 ---
 
-## B6 — Kicking — **done**
+## B6 — Kicking — **partial**
 
-Subfile: [B6-shooting.md](B6-shooting.md)
+Subfiles: [B6-shooting.md](B6-shooting.md), [B6a-kick-fidelity.md](B6a-kick-fidelity.md)
 
 | Work item | State |
 |---|---|
@@ -167,6 +203,26 @@ Subfile: [B6-shooting.md](B6-shooting.md)
 | Golden / corpus / movement re-pinned | landed |
 
 Done-when met: scripted curled-shot `HashState` stable under Amiga profile. Table values are provisional fit targets; real SWOS ATTR remains an A3 follow-up.
+
+### B6a — Kick & aftertouch fidelity — **partial**
+
+Subfile: [B6a-kick-fidelity.md](B6a-kick-fidelity.md)
+
+| Work item | State |
+|---|---|
+| S1 curl geometry (E/W rows) + `spin_cw`/`spin_ccw` rename | landed |
+| S2 window opens the Step after the strike (tick 0 reachable) | landed |
+| S3 `normal_fire` as a level; contest entry on the press edge | landed |
+| S4 possession during the fire charge | landed |
+| S5 `ClassifyShotOnGoal` position gate + real penalty area | landed |
+| S6 `restart_shortfall` split out; pass loft implemented | landed |
+| Behavioural suite (7 files) + property-style `test_aftertouch` | landed |
+| `KickProbe` + C1a control HUD + transcript `kick:` line | landed |
+| `shot_curl` corpus scenario reaches the ball; ATIN v2 setup ids | landed |
+| Fit the timing constants against the oracle (Track M) | **not started** — needs [A3](A3-trace-harness.md) item 4 |
+
+B6 returns to **done** when Track M closes. The engine's kick constants are
+tagged `[PROVISIONAL: LEGACY §15 …]` in code until then.
 
 ---
 
@@ -370,7 +426,7 @@ Subfile: [A5-game-data.md](A5-game-data.md)
 | Deliverable | State |
 |---|---|
 | Own `ATGD` schema (league + career snapshot by team id) | landed |
-| Types: player / team / tactic (10×35 grid), attrs **0–15** | landed |
+| Types: player / team / tactic (10×35 grid), attrs **0–7** (B13 / R2) | landed |
 | `MakeFictionalLeague()` — 8 teams, 3 tactics | landed |
 | `ApplyKickoff` → `MatchState` projection (sheets, 16-player squads, tactics snapshot, kits) | landed (extended by B1) |
 | Round-trip + kickoff + malformation tests (`data_tests`) | landed |
@@ -422,10 +478,81 @@ Runtime serving is interchangeable; the shell prompt and a complete generated pa
 | `MarkBallLoose` — auto-switch when ball is loose | landed |
 | Fictional tactics own-half shapes + `team_playing_up` mirror | landed |
 
-## What Wave 2 / 3 needs next
+## C1 — Render core — **partial**
 
-1. **Wave 3 play-feel gate** — play a full match on C1a dots and decide  
-2. Full **C1** (Wave 4) when presentation work starts — do not grow C1a  
+Subfile: [C1-render-core.md](C1-render-core.md)
+
+| Work item | State |
+|---|---|
+| Subfile + CURRENTSTATE | landed |
+| `PitchTiles` palette + optional `ball.atp` on import | landed |
+| Pure grid/expand helpers + `test_pitch_tiles` | landed |
+| `PitchAtlas` + `DrawMatch` wired from `main` | landed |
+| Seasonal pitch-number / weather art | not started |
+| Retire landmark overlay / player dots | C2 / C3 |
+
+Wave 3 feel gate accepted as good-enough (not complete). A4 original import present under `assets/generated/` (no `ball.atp` — synthesised).
+
+## C1b — Sandbox match mode — **done**
+
+Subfile: [C1b-sandbox-mode.md](C1b-sandbox-mode.md)
+
+| Work item | State |
+|---|---|
+| Off-pitch rule (`IsOffPitch` / `ParkOffPitch`) honoured at kickoff + in team controls | landed |
+| Restart taker falls back to the keeper; control slot released when no field player | landed |
+| `SandboxConfig` + `BuildSandboxState` + `StartSandbox` (`src/app/mode/`) | landed |
+| SANDBOX button, config dialog, `R` / `Shift+R` reset, half-time reset | landed |
+| Arrow-key movement, ImGui keyboard gating (`PollNeutral`) | landed |
+| `test_offpitch_players`, `test_restart_one_man_side`, `test_sandbox_setup` | landed |
+
+Two engine defects fell out of it and are fixed: a sent-off player was put back on the
+pitch by the next kickoff and then walked to his tactics cell, and a side with no
+outfielder left sent an off-pitch player to take restarts. Goldens and corpus unmoved —
+no pinned scenario contains a sending-off.
+
+---
+
+## C2 — Camera — **done**
+
+Subfile: [C2-camera.md](C2-camera.md)
+
+| Work item | State |
+|---|---|
+| `Camera` outside `at_core`; kick-off end from `presentation_rng` | landed |
+| Mode priority: frozen / booking / shootout / substitution / standard | landed |
+| Lead offset ±2 → ±40 on the ball delta, taker facing when stopped | landed |
+| `/16` ease + 5-unit cap; destination clip then position clip | landed |
+| `DrawMatch` takes a camera; C1a's follow/full toggle retired | landed |
+| `test_camera` — ramp, ease, clips, freeze, shootout, corner margin, hash invariance | landed |
+
+Bench mode and the left-edge slide stay C6; CAMERA.md §6's gate is unresolved even in the
+reference and was not invented here.
+
+## C3 — Kits, animation, ball, pitch — **done**
+
+Subfile: [C3-sprites-animation.md](C3-sprites-animation.md)
+
+| Work item | State |
+|---|---|
+| Pitch from `pitchN.blk` + `pitchN.dat` (8-bit tiles, 6 pitches); row mapping by `SourceKind` | landed |
+| `assetc` geometry banks from `team1/2/3.dat`; ball, numbers; kit ordinals in `palette.atl` aux | landed |
+| `KitBank` — 2 sides × 3 faces + 2 keeper kits, baked at kickoff | landed |
+| Frame taxonomy measured off the art (facing, mirror pairing, foot spread, body axis) | landed |
+| `core/animation.hpp` stepper + tables; wired into `Step`; renderer draws `image_index` | landed |
+| Real ball: 4 rotation frames + separate shadow sprite, speed-driven spin | landed |
+| Shirt number above the controlled player; white ring gone; HUD behind `F1` | landed |
+| Hash re-pin: 8 scenarios + golden + both corpus chains | landed |
+| `test_animation`, `test_kit_palette`, extended `test_pitch_tiles` / parity | landed |
+
+Left explicitly unfinished and marked `[PROVISIONAL]` in `animation_tables.hpp`: header,
+throw-in, celebration and keeper-dive frame ranges are identified but not mapped, and
+those states fall back to standing rather than to a guess.
+
+## What Wave 4 needs next
+
+1. **C4** match presentation — scoreboard, cards, replays (reuses the number sprite)
+2. Finish the C3 frame taxonomy: headers, throw-ins, keeper dives  
 
 ---
 
@@ -436,6 +563,7 @@ Runtime serving is interchangeable; the shell prompt and a complete generated pa
 | Core / state | `src/core/include/core/{match_state,match_clock,ball,movement,possession,shooting,aftertouch,tackling,heading,set_pieces,referee,game_events,out_of_play,hash,trace,match_*}.hpp` |
 | B1–B8 / B10 / C1a plans | `doc/implementation/B1-…`, `B5-possession.md`, `B6-shooting.md`, `B7-contests.md`, `B8-set-pieces.md`, `B10-match-input.md`, `C1a-debug-match-view.md` |
 | App input / debug draw | `src/app/input/match_input_source.*`, `src/app/render/{match_renderer,pitch_view}.*` |
+| Sandbox mode | `src/app/mode/sandbox.*`, `src/app/ui_imgui/screens/sandbox_menu.*` |
 | Assets | `src/assets/`, `src/tools/assetc/`, `src/app/render/{asset_source,placeholder,imported}_*` |
 | Placeholder art | `assets/placeholder/` (`gen-placeholder`) |
 | Game data | `src/data/include/data/{game_data,fictional}.hpp` |

@@ -26,6 +26,8 @@ add_executable(core_tests
     core/test_ball_barrier.cpp
     core/test_ball_predictor.cpp
     core/test_ball_oop_wire.cpp
+    core/test_oop_freeze_kickoff.cpp
+    core/test_goal_attribution.cpp
     core/test_ball_trajectory.cpp
     core/test_player_speed.cpp
     core/test_player_dest.cpp
@@ -39,11 +41,20 @@ add_executable(core_tests
     core/test_possession_capture.cpp
     core/test_dribble.cpp
     core/test_dribble_turn.cpp
+    core/test_touch_count.cpp
+    core/test_keeper_position.cpp
     core/test_fire_classify.cpp
     core/test_kick_launch.cpp
     core/test_shot_bonus.cpp
     core/test_aftertouch.cpp
     core/test_curled_shot.cpp
+    # B6a — kick / aftertouch fidelity, driven through MatchEngine::Step
+    core/test_aftertouch_window.cpp
+    core/test_fire_hold.cpp
+    core/test_charge_possession.cpp
+    core/test_shot_zone.cpp
+    core/test_pass_loft.cpp
+    core/test_kick_probe.cpp
     core/test_slide_begin.cpp
     core/test_slide_deflect.cpp
     core/test_foul_test.cpp
@@ -58,6 +69,8 @@ add_executable(core_tests
     core/test_cards_injury.cpp
     core/test_referee_machine.cpp
     core/test_restart_cycle.cpp
+    core/test_restart_one_man_side.cpp
+    core/test_offpitch_players.cpp
     core/test_restart_aim_freeze.cpp
     core/test_control_switch.cpp
     core/test_kickoff_halves.cpp
@@ -66,6 +79,7 @@ add_executable(core_tests
     core/test_ai_b9.cpp
     core/test_performance_rating.cpp
     core/test_transcript.cpp
+    core/test_animation.cpp
 )
 target_link_libraries(core_tests PRIVATE at_core at_data at_tracekit doctest)
 target_compile_definitions(core_tests PRIVATE
@@ -88,6 +102,7 @@ endif()
 add_executable(asset_tests
     assets/test_asset_pack.cpp
     assets/test_placeholder_parity.cpp
+    assets/test_kit_palette.cpp
 )
 target_link_libraries(asset_tests PRIVATE at_assets at_asset_source doctest)
 target_compile_definitions(asset_tests PRIVATE
@@ -116,12 +131,17 @@ add_executable(harness_tests
     harness/test_result_sim.cpp
     harness/test_offscreen.cpp
     harness/test_pitch_to_screen.cpp
+    harness/test_pitch_tiles.cpp
+    harness/test_sandbox_setup.cpp
+    harness/test_camera.cpp
+    ${CMAKE_SOURCE_DIR}/src/app/mode/sandbox.cpp
+    ${CMAKE_SOURCE_DIR}/src/app/render/camera.cpp
 )
 target_include_directories(harness_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/src/app
     ${CMAKE_SOURCE_DIR}/tests
 )
-target_link_libraries(harness_tests PRIVATE at_core at_data doctest)
+target_link_libraries(harness_tests PRIVATE at_core at_data at_assets doctest)
 add_test(NAME harness_tests COMMAND harness_tests)
 
 # ---------------------------------------------------------------------------

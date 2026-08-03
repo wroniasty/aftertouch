@@ -17,6 +17,14 @@ reads and writes, and which numbers are known versus still to be measured.
 > trace harness, exactly as [LEGACY.md](LEGACY.md) §15 prescribes. Read this to
 > understand the design; write our own code.
 
+> **Second oracle.** [amiga/AFTERTOUCH.md](amiga/AFTERTOUCH.md) traces
+> `ApplyBallAfterTouch` (asm:40089) in the Amiga original. It calls this "the
+> best-documented mechanic in the binary", and it supplies **all seven tables in
+> §7 as literal values** — including the complete curl vectors and the decay ramp.
+> It also contradicts this document in three places, two of which look like real
+> errors here rather than build differences. Everything is in §11; **read that
+> before implementing from §4–§6.**
+
 ---
 
 ## 0. One-paragraph version
@@ -262,15 +270,29 @@ down = high" for the top goal. The code decides height from the *rotational offs
 manual's rule when shooting straight at a goal, but generalizes to any launch
 direction and any diagonal.
 
-**Still to measure on the reference build** (this is a *port*; verify against
-original traces per [LEGACY.md](LEGACY.md) §15's method):
+**Resolved by the Amiga oracle** (see §11):
 
-- The actual values in the seven tables in §7 (especially the `kSpinMultiplierFactor`
-  decay shape and the per-direction curl magnitudes).
-- Whether tick 4 is the exact sampling point on the Amiga build, or a port artifact.
+- ~~The actual values in the seven tables in §7.~~ All seven recovered as literals.
+  The decay ramp is `5, 4, 3, 2, 2, 2, 2, 1, 1, 1` — neither linear nor exponential
+  — and the curl magnitudes are only ever 0, 23 or 32.
+- ~~Whether tick 4 is the exact sampling point on the Amiga build.~~ It is. The
+  Amiga tests `spinTimer == 4` exactly (asm:40154), for kicks only.
+- ~~Whether `longSpinPass` composes curl + loft additively.~~ There is **no pass
+  loft**. The pass branch changes no `deltaZ` at all; the two flags at +124/+126 are
+  a one-shot lockout on a `speed += speed/8` nudge. See §11.
+
+**Still to measure** (verify against original traces per [LEGACY.md](LEGACY.md) §15):
+
 - Interaction of the destination-nudge curl with rolling friction / pitch type
-  (a curl on Frozen should travel further before the target is reached).
-- Whether `longSpinPass` composes curl + loft additively or caps one of them.
+  (a curl on Frozen should travel further before the target is reached). Open on
+  both oracles.
+- Whether the kick direction (`+56` / Amiga `+$38`) is ever rewritten mid-window. If
+  it were, kick curl would compound the way pass curl does. Nothing found suggests
+  it is, but the field has several writers.
+- Whether the height switch can fire twice if the window is interrupted before tick
+  4 and restarted — i.e. whether a quick second touch grants a second lob.
+- Whether the asymmetries in the curl table (§11) are deliberate tuning or
+  table-entry errors in the original.
 
 ---
 
@@ -294,3 +316,141 @@ original traces per [LEGACY.md](LEGACY.md) §15's method):
   (see [PLAYER_SPRITES.md](PLAYER_SPRITES.md) §5) available to the ball model.
 - **Fit the seven tables from traces**, do not hand-tune by feel — this mechanic
   is precisely the "feels wrong" surface [LEGACY.md](LEGACY.md) §17 warns about.
+  We now have candidate values for every one of them (§11), which makes the fitting
+  a confirmation exercise rather than a search.
+- **Keep the decay ramp as a table.** It is not exponential and not linear; fitting
+  a curve to it gets ticks 3–6 wrong, which is exactly where a late reaction lands.
+- **Reproduce the per-axis speed correction even though it is a rendering
+  artefact.** Vertical shots are the common case in front of goal, and getting them
+  33 % too fast is immediately obvious.
+- **Trace the whole window** — ten ticks of `spinTimer`, `leftSpin`, `rightSpin`,
+  `destX`, `destY`, `speed` and `deltaZ` per kick is a small, complete, checkable
+  record, and it belongs in the trace format from the start.
+
+---
+
+## 11. Amiga cross-check
+
+Traced independently through the Amiga original — [amiga/AFTERTOUCH.md](amiga/AFTERTOUCH.md).
+
+### All seven tables, with values
+
+| §7 symbol | Amiga symbol / line | Value |
+|---|---|---|
+| `kSpinMultiplierFactor` | `spinMultiplierFactor`, asm:30735 | **5, 4, 3, 2, 2, 2, 2, 1, 1, 1** |
+| `kKickSpinFactor` | `kickSpinFactor`, asm:30746 | 8 octants × 2 sides × (dx, dy), magnitudes 0 / 23 / 32 |
+| `kPassingSpinFactor` | `passingSpinFactor`, asm:30778 | same shape, 0 / 11 / 16 — **half strength** |
+| `kHighKickDeltaZ` | `off_10E658`, asm:30740 | **$20000** (2.0 px/frame) |
+| `kHighKickBallSpeed` | `word_10E65C`, asm:30741 | **2688** |
+| `kNormalKickDeltaZ` | `off_10E65E`, asm:30742 | **$16000** (1.375 px/frame) |
+| `kNormalKickBallSpeed` | `word_10E662`, asm:30743 | **2560** |
+
+The curl table in full:
+
+| Kick octant | Left side (dx, dy) | Right side (dx, dy) |
+|---|---|---|
+| 0 (up) | (−32, 0) | (0, 0) |
+| 1 (up-right) | (+32, 0) | (0, −23) |
+| 2 (right) | (+23, 0) | (0, 0) |
+| 3 (down-right) | (0, −32) | (0, +32) |
+| 4 (down) | (+23, 0) | (0, 0) |
+| 5 (down-left) | (+23, +32) | (0, −32) |
+| 6 (left) | (0, 0) | (+23, −23) |
+| 7 (up-left) | (0, 0) | (+32, 0) |
+
+23 ≈ 32/√2, so the diagonal cases are the axis-aligned magnitude resolved onto two
+axes. The table is hand-tuned and **not perfectly symmetric** — several entries are
+(0, 0) where symmetry predicts a value. Reproduce it verbatim rather than deriving
+it; whether the gaps are deliberate is listed as open in §9.
+
+**The decay ramp sums to 23, and the first three ticks contribute 12 of that** —
+more than half the curl lands in the first 60 ms. Peak per-tick offset is 32 × 5 =
+160 destination units on tick 0, which against a launch aim point 1000 units out is
+a first-tick heading change of about 9°, falling under 2° by tick 7. That is the
+quantitative form of §4's "sooner = stronger", and it is why the mechanic rewards
+anticipation rather than reaction.
+
+Total curl across a window: **736** destination units for a kick, **368** for a pass.
+
+### "Low drive" is a misnomer
+
+§5 calls the `diff ∈ {2, 6}` branch a **low drive**. Against the launch default of
+`ballKickingDeltaZ` = $14000, the drive value $16000 is **higher**, not lower — it
+is a *raised* drive, and the lob at $20000 is 60 % above the default. Both branches
+also *increase* speed, from 2208 to 2560 and 2688 respectively. That reads as
+counter-intuitive until you remember air friction is lower than ground friction
+([BALL.md](BALL.md) §3): a lofted ball needs the extra pace to arrive at the same
+time. **Nothing in aftertouch makes a ball fly lower than it left the foot.**
+
+The Amiga also covers a case §5 omits: with **no joystick input at all** at tick 4,
+the drive branch fires — $16000 / 2560, not "no change". Only pushing *on* with the
+kick (diff 0, 1, 7) leaves the launch values alone.
+
+### Three disagreements
+
+1. **`+44` and `+56` look swapped in §2, and [MOVEMENT.md](MOVEMENT.md) agrees with
+   the Amiga, not with this table.** §2 reads `currentAllowedDirection` (+44) as
+   "direction the ball was launched" and `allowedPlDirection` (+56) as "current
+   joystick direction". The Amiga has `currentDirection` at **+$2C = 44** —
+   *"joystick octant this frame, −1 = neutral"* — and `field_38` at **+$38 = 56** —
+   *"direction the ball was kicked in, the axis curl is measured against"*
+   ([amiga/STATE.md](amiga/STATE.md) §4). [MOVEMENT.md](MOVEMENT.md) §3.1
+   independently describes `currentAllowedDirection` as the per-tick input reading,
+   which matches the Amiga. Two of our three readings say +44 is live input.
+   **Treat §2's two rows as swapped pending a trace**; the code in §4 is written in
+   terms of `joystickDir` and `kickDir`, so the logic survives the correction
+   unchanged, but any implementation that copies the offsets will bend shots the
+   wrong way.
+
+2. **The latch subtraction runs the other way.** §4 computes
+   `diff = (joystickDir − kickDir) & 7`; the Amiga computes
+   `diff = (kickDirection − joy) & 7` (asm:40103–40133), with the same
+   `diff < 4 → left` / `else → right` split. Since `(a − b) & 7` and `(b − a) & 7`
+   are reflections about 0 and 4 — the two values that produce no curl — the guard
+   behaves identically but **every non-zero case latches the opposite side**. One of
+   the two transcriptions has the operands round the wrong way. This is a one-line
+   error with a total effect on feel, and it is worth resolving before anything else
+   in this document.
+
+3. **Passes cannot be lofted.** §6 says `longPass` / `longSpinPass` "gate the lob"
+   on the pass path. On the Amiga the pass branch (asm:40216) touches `deltaZ`
+   **not at all**: both the "pulling back" and "across" cases do the same thing,
+   `speed += speed/8`, and the flag pair at +$7C exists only to make that nudge
+   one-shot. A pass can be hurried, never lofted. The Amiga also notes the pass
+   height switch is *not* gated on tick 4 — it fires on the first tick the condition
+   is met. §6's other two rows (a separate, weaker table; indexed by the ball's
+   current travel direction rather than the launch direction) are both confirmed.
+
+### Confirmed exactly
+
+- The window is **10 ticks**, counted 0–9, `−1` inactive, reset at 10. ✓
+- The side is latched on the first off-axis push and **cannot be reversed** within
+  the window. ✓ The Amiga is emphatic that this is the single most important
+  behavioural property: reading the stick fresh each tick "lets players wiggle the
+  ball into the goal and destroys the skill ceiling".
+- Neutral stick and the two collinear octants (diff 0 and 4) produce no curl. ✓
+- Curl is applied to the **aim point**, before the ball integrates, never to
+  velocity. ✓
+- The height switch fires at **tick 4 exactly**, for kicks only. ✓
+- The three early-exit guards match §3 exactly: opponent's keeper save-latch
+  negative, play not live while the keeper holds, timer already −1. ✓
+- The struct offsets in §2 match byte for byte — `spinTimer` 118, `leftSpin` 120,
+  `rightSpin` 122, the `longPass` pair 124/126, `passInProgress` 128. The Amiga
+  reads +124 as one longword used as two independent word flags, which is exactly
+  §2's `longPass` / `longSpinPass` pair. ✓
+- The speed trim magnitudes match: ×3/4 on the vertical axis, ×7/8 on diagonals,
+  none on the horizontal. But see the note below on what indexes them.
+- Aftertouch **does not survive a rebound or a contact** — post, net and possession
+  changes all call the reset. ✓ (§3)
+- The CPU applies aftertouch through the same code path, as a synthetic joystick. ✓
+  (§8)
+
+### One more thing to check in the port
+
+§5's speed trim is keyed on the **joystick direction at tick 4**. The Amiga applies
+the same three multipliers keyed on the **kick octant** (asm:40170–40194) and
+explains them as a screen-space correction — the pitch is drawn with vertical
+foreshortening, so a ball travelling up-screen covers more apparent ground per pixel
+and is damped hardest. That explanation only makes sense keyed on the direction of
+travel, i.e. the kick axis. Another swapped operand, most likely, and the same class
+of error as (1) and (2) above.

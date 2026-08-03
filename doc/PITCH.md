@@ -62,6 +62,15 @@ Note `kNormal = 4` sits in the middle of the ordering, and the ordering runs
 ordering is what makes them legible — `ballSpeedBounceFactor` runs 24, 80, 80, 72,
 64, 40, 32, peaking on the wet surfaces and lowest on Frozen and Hard.
 
+> **Amiga cross-check.** The Amiga original carries all three tables with the same
+> values in the same order ([BALL.md](BALL.md) §12), but the pitch-type index
+> arrives from outside its match module, so the Amiga document can only infer the
+> naming from the tables' shape — it reads index 0 as "a fast, true surface" and
+> 1–2 as "heavy, slow, dead", which is exactly Frozen / Muddy / Wet. **This
+> document supplies the names the Amiga binary cannot**, and the fact that a
+> blind reading of the numbers reconstructs the same wet-to-dry ordering is decent
+> corroboration for both. See [amiga/BALL.md](amiga/BALL.md) §5.
+
 ---
 
 ## 2. Choosing the surface
@@ -305,7 +314,15 @@ flags) is not ported. Note that this is also the only thing that decrements
 - **Does the surface affect anything besides the ball?** Player acceleration, top
   speed and turning are the obvious candidates and would be strongly felt.
   `pitchBallSpeedFactor` is the only consumer found so far; [LEGACY.md](LEGACY.md)
-  §6 implies more.
+  §6 implies more. **Strengthened to a near-answer**: an independent trace of the
+  Amiga original finds the same three constants latched once at kick-off and no
+  other consumer of the pitch type anywhere in the match module
+  ([amiga/BALL.md](amiga/BALL.md) §5). Two binaries, one consumer each. The surface
+  affects the ball and nothing else.
+- **Which index is which surface, in the Amiga binary.** The tables match this
+  document's exactly, so the naming almost certainly carries over — but the Amiga's
+  index comes from outside its match overlay and the mapping is inferred there, not
+  read.
 - `kPitchPatternWidth` / `kPitchPatternHeight` are used but not located — they live
   in the generated `pitchDatabase.h`. Confirm 42 × 53 directly rather than by
   arithmetic, and reconcile with `docs/rendering.txt`'s "55x42".

@@ -3,6 +3,7 @@ add_library(at_asset_source STATIC
     asset_source.cpp
     placeholder_assets.cpp
     imported_assets.cpp
+    kit_palette.cpp
 )
 target_include_directories(at_asset_source PUBLIC ${CMAKE_SOURCE_DIR}/src/app)
 target_link_libraries(at_asset_source PUBLIC at_assets at_core)

@@ -188,10 +188,50 @@ Write it **at the end of Wave 1**, from what Wave 1 produced.
 
 ### Audit, not extraction
 
-- **Goalkeeper actions.** [AI.md](AI.md) §4 is ~160 lines on the keeper. Whether it
-  covers *actions* — dive, catch, punch, distribution — as opposed to positioning,
-  is unverified. Read it before deciding whether a `GOALKEEPER.md` is warranted or
-  whether AI.md §4 just needs extending. Half an hour, do it before Wave 1 ends.
+- ~~**Goalkeeper actions.**~~ **Resolved, and by the other oracle.** The question was
+  whether [AI.md](AI.md) §4 covers keeper *actions* as opposed to positioning, and
+  whether a `GOALKEEPER.md` was warranted. [amiga/GOALKEEPER.md](amiga/GOALKEEPER.md)
+  now exists and answers it from the Amiga side: AI.md §4 covers positioning, the
+  dive decision and the catch/parry split well, but **misses an entire stage** — the
+  Finishing-versus-goalieSkill roll that decides goal or save before the keeper
+  decides whether to dive ([AI.md](AI.md) §10). The right follow-up is not a new
+  document but a targeted search of the port for that stage.
+
+### Wave 4 — the Amiga oracle (done)
+
+A second reference appeared after this plan was written: a 68000 disassembly of the
+**Amiga SWOS 96/97 match module**, in the sibling repository `original-amiga-swos`.
+Thirteen documents in [amiga/](amiga/) were extracted from it, and every applicable
+document in this directory has been cross-checked against them
+([AMIGA_CHANGES.md](AMIGA_CHANGES.md) is the ledger).
+
+It changes §1's second principle materially. *"Structure is reliable, constants are
+not"* held because the DOS port's numbers live in an opaque data segment. **In the
+Amiga disassembly they are named literals**, so most of the physics and tuning
+constants now have a candidate value. The principle does not go away — a value read
+out of a binary is still a measurement rather than a specification, and the
+interpretation wrapped around it can still be wrong — but the trace corpus's job
+shifts from *search* to *confirmation* for a large part of
+[LEGACY.md](LEGACY.md) §15.
+
+Two procedural notes for anyone extending this work:
+
+- **Record disagreements, do not resolve them silently.** Where the two oracles
+  differ, that is a finding about which game we are cloning. Several such
+  disagreements are live — the foul-from-behind test, the aftertouch side latch, the
+  crossbar rebound — and each is recorded in the relevant document's cross-check
+  section rather than arbitrated by preference.
+- **The flow goes both ways.** Our DOS-port documents are *ahead* of the Amiga set
+  in several places, and those findings should be fed back into [amiga/](amiga/):
+  the header helper routines' effect on `deltaZ` ([HEADING.md](HEADING.md) §10), the
+  free-kick zone selection ([SETPIECES.md](SETPIECES.md) §12), the keeper's dive-rate
+  index table — which the Amiga document calls its "single highest-value unknown"
+  and [AI.md](AI.md) §4.1 simply has ([AI.md](AI.md) §10) — and the three planar
+  proximity thresholds.
+
+The Amiga set deliberately does not cover presentation (sprites, camera, menus,
+audio), which the documents here already handle and which the disassembly describes
+far less legibly than it describes the simulation. There is no Wave 5 there.
 
 ---
 
@@ -223,8 +263,21 @@ not a separate task.
 | [MOVEMENT.md](MOVEMENT.md):537 — *"Full resolution belongs in a tackle document, not here"* | TACKLING.md |
 | [CONTROL.md](CONTROL.md):183 — running-tackle/slide contest listed as open | TACKLING.md |
 | Heading fragments scattered across MOVEMENT §9, [AI.md](AI.md) §5.7, PLAYER_SPRITES | HEADING.md, with backlinks replacing the fragments |
-| [SHOOTING.md](SHOOTING.md) §7 — *"The `getBallDestCoordinatesTable` offsets per game state"* | BALL.md |
+| [SHOOTING.md](SHOOTING.md) §7 — *"The `getBallDestCoordinatesTable` offsets per game state"* | BALL.md, then enumerated in [SETPIECES.md](SETPIECES.md) §12 |
 | Ball-physics assumptions in AFTERTOUCH/SHOOTING/CONTROL with no document behind them | BALL.md |
+| The attribute-range question, flagged open in HEADING §8, TACKLING §10, STATE §9 and DATA §3 | **Closed** — 0–7, [amiga/PLAYERS.md](amiga/PLAYERS.md) §1; the mis-read that caused it is traced in [HEADING.md](HEADING.md) §10 |
+
+New debts opened by the Amiga cross-check, listed so they are not lost:
+
+| Debt | Where |
+|---|---|
+| Whether team decisions really alternate one team per frame | [MOVEMENT.md](MOVEMENT.md) §13, [INPUT.md](INPUT.md) §4 |
+| Which way the foul-from-behind facing test runs | [TACKLING.md](TACKLING.md) §12 |
+| Which way the aftertouch side-latch subtraction runs, and whether `+44`/`+56` are swapped in AFTERTOUCH §2 | [AFTERTOUCH.md](AFTERTOUCH.md) §11 |
+| Whether the port has the goal-versus-save resolution stage at all | [AI.md](AI.md) §10 |
+| Whether the flat-3 recovery table is the CPU's or the deflecting tackle's | [TACKLING.md](TACKLING.md) §12 |
+| Whether `Rand2` (the second RNG stream) is original or a port addition | [SIMULATION.md](SIMULATION.md) §14 |
+| Whether **Passing** has any in-match reader | [LEGACY.md](LEGACY.md) §9 |
 
 ---
 

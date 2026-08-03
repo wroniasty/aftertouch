@@ -96,6 +96,11 @@ TEST_CASE("scripted 200-tick movement hash is stable") {
     CHECK(a == RunScenario());
 
     // Pinned after B4. If movement changes on purpose, print and update.
-    constexpr uint64_t kExpected = 0x05e341c0699753ddull;
+    // Re-pinned B13 / R7 (goalkeeper): the keeper's resting destination is the
+    // Amiga arc-and-band map — a 103px arc across his goal and a 27px depth
+    // band — instead of the midpoint between the ball and his own goal line on
+    // a 254px arc, which sent him to the halfway line whenever the ball was at
+    // the far end. Both keeper callers now share one formula.
+    constexpr uint64_t kExpected = 0x34280ab247df4e0bull;
     CHECK(a == kExpected);
 }

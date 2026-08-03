@@ -238,6 +238,32 @@ bool LoadSwosSprites(const fs::path& swos_dir, SwosSpriteSet& out, std::string& 
             }
         }
     }
+
+    // The player bank, once per team file. sprite.dat describes two SLOTS, and which
+    // team file the game happened to load into a slot is a run's configuration -- so a
+    // slot is the wrong thing to import. The geometry is the file, and all three are
+    // read here with the slot-A band's addressing (the files are byte-for-byte the same
+    // size and layout, so the offsets apply unchanged).
+    static const char* kGeometryFiles[kShirtGeometryCount] = {"team1.dat", "team2.dat",
+                                                              "team3.dat"};
+    const size_t player_first = kBands[2].first;          // 341
+    const size_t player_base  = joint_base[2];
+    for (int g = 0; g < kShirtGeometryCount; ++g) {
+        std::vector<uint8_t> file;
+        if (!ReadFile(swos_dir / kGeometryFiles[g], file, err)) return false;
+
+        auto& bank = out.geometries[static_cast<size_t>(g)];
+        bank.resize(kPlayerBankFrames);
+        for (int k = 0; k < kPlayerBankFrames; ++k) {
+            const size_t i = player_first + static_cast<size_t>(k);
+            if (i >= offsets.size()) break;
+            const size_t joint_off = offsets[i];
+            if (joint_off < player_base) continue;
+            SwosSprite& s = bank[static_cast<size_t>(k)];
+            if (!ReadHeaderAt(file, joint_off - player_base, s.header)) continue;
+            s.indices = DecodePlanar(file, s.header);
+        }
+    }
     return true;
 }
 

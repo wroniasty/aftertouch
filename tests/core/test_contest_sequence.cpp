@@ -29,7 +29,7 @@ uint64_t RunContestSequence() {
     s.sides[0].squad[9].attrs.speed = 5;
     s.sides[0].squad[9].attrs.tackling = 5;
     s.sides[0].squad[9].attrs.ball_control = 4;
-    s.sides[0].squad[9].attrs.heading = 8;
+    s.sides[0].squad[9].attrs.heading = 7; // was 8 — above the 0–7 range (B13 / R2)
 
     PlacePlayersAtKickoff(s);
     // Place ball ahead of player 9, out of very-close/not-far so first fire slides.
@@ -71,7 +71,26 @@ uint64_t RunContestSequence() {
 TEST_CASE("scripted contest sequence hash is stable") {
     const uint64_t a = RunContestSequence();
     CHECK(a == RunContestSequence());
-    constexpr uint64_t kExpected = 0x08dc9458bd43177aull;
+    // Re-pinned B13 / R3: Amiga kick and curl values reach this scenario through its
+    // strike; the keeper's save reach also went 16 → 24.
+    //
+    // Re-pinned B13 / R2: the scenario's header attribute was 8 — above the real
+    // 0–7 range — and indexed the phantom 13-entry heading table for a +513 launch
+    // bonus that does not exist. At a legal 7 the bonus is zero, because Heading is
+    // a handicap ramp whose top value is the zero point.
+    //
+    // Previously (B6a): contest entry is the press edge only (S3), so a held fire
+    // no longer re-enters a slide on the threshold tick.
+    // Re-pinned B13 / R6 (pass fixes): pass targeting is the Amiga's — no range
+    // limit, cone anchored at the ball at +-22.5 degrees, aim ray extended past the
+    // receiver — and the post-kick lockout no longer blocks team-mates from
+    // receiving. Pass strength and the Passing bonus are now the sourced tables.
+    // Re-pinned B13 / R7 (goalkeeper): the keeper's resting destination is the
+    // Amiga arc-and-band map — a 103px arc across his goal and a 27px depth
+    // band — instead of the midpoint between the ball and his own goal line on
+    // a 254px arc, which sent him to the halfway line whenever the ball was at
+    // the far end. Both keeper callers now share one formula.
+    constexpr uint64_t kExpected = 0x8901c564b16b79e4ull;
     CAPTURE(a);
     CHECK(a == kExpected);
 }

@@ -6,8 +6,12 @@ add_executable(aftertouch
     ui_imgui/imgui_backend.cpp
     ui_imgui/fonts.cpp
     ui_imgui/screens/main_menu.cpp
+    ui_imgui/screens/sandbox_menu.cpp
     render/match_renderer.cpp
+    render/camera.cpp
+    render/pitch_atlas.cpp
     input/match_input_source.cpp
+    mode/sandbox.cpp
 )
 
 target_include_directories(aftertouch PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

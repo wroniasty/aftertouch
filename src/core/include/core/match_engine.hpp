@@ -20,6 +20,11 @@ public:
 
     const MatchState& State() const { return state_; }
 
+    // Presentation-only draw (camera kick-off end, C2). Comes from the stream
+    // HashState excludes, so consuming it cannot desynchronise a replay — which is
+    // exactly why the camera is allowed a coin flip while living outside the tick.
+    uint16_t DrawPresentationRng() { return state_.presentation_rng.Draw(); }
+
 private:
     MatchState state_{};
 };

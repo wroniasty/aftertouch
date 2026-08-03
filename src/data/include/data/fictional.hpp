@@ -73,11 +73,29 @@ inline TacticRecord MakeTactic(const char* name, uint8_t out_of_play,
             int x = static_cast<int>(roles[r].x) + (col - 2) * 2;
             if (x < 0) x = 0;
             if (x > 14) x = 14;
-            // Push with ball row; keep centre-ball (row~3) in own half (y<=7).
-            int y = static_cast<int>(roles[r].y);
-            if (row > 3) y += (row - 3);
-            if (y < 0) y = 0;
-            if (y > 15) y = 15;
+            // Push and drop with the ball row, across the whole grid.
+            //
+            // This used to read `if (row > 3) y += (row - 3)`, so the four ball
+            // rows from the far byline to just past halfway all produced an
+            // *identical* shape — over half the pitch in which the ball moved
+            // and the team's depth did not. Columns had no such dead zone, which
+            // is exactly what the C1A trace shows: the AI team sliding sideways
+            // with the ball while its y never changed, leaving its attackers a
+            // hundred and fifty units behind play.
+            //
+            // Row 3 is the centre band and stays neutral; the shape now shifts
+            // three cells (120 units) either side of it, so the team drops off
+            // when the ball is at the far end and pushes up when it is near.
+            //
+            // The authored role bases span only 2…7, so the extreme rows
+            // compress the back line against the clamp. Bounded to 1…14 rather
+            // than 0…15 so nobody ends up standing on his own goal line; the
+            // residual flattening at the two extreme rows is a property of this
+            // placeholder formation data, not of the movement code, and goes
+            // away with real tactics (A5).
+            int y = static_cast<int>(roles[r].y) + (row - 3);
+            if (y < 1) y = 1;
+            if (y > 14) y = 14;
             t.cells[r][q] = Cell(static_cast<uint8_t>(x), static_cast<uint8_t>(y));
         }
     }
@@ -104,11 +122,28 @@ inline PlayerRecord MakePlayer(const char* name, uint8_t shirt, Position pos,
     return p;
 }
 
+// The squad below is authored on a 0–13 design canvas because that spread is what
+// makes a poacher legibly different from a centre-half. The engine's attribute
+// range is 0–7 (B13 / R2), so the canvas is **projected**, not clamped: clamping
+// would flatten every strong team into a wall of 7s and erase exactly the
+// differentiation the canvas exists to express.
+//
+// Design span = max base (13, the Poacher's finishing) + max strength (5) = 18.
+inline constexpr int kDesignSpan = 18;
+
+inline constexpr uint8_t ProjectAttr(int canvas) {
+    if (canvas < 0) canvas = 0;
+    // Round to nearest rather than truncating, so the top of the canvas reaches
+    // the top of the range instead of falling one short.
+    const int v = (canvas * static_cast<int>(kAttrMax) + kDesignSpan / 2) / kDesignSpan;
+    return static_cast<uint8_t>(v > static_cast<int>(kAttrMax) ? kAttrMax : v);
+}
+
 inline void FillSquad(TeamRecord& team, uint8_t strength) {
-    // strength 0–5 shifts the whole squad within 0–15 without leaving the range.
+    // strength 1–5 shifts the whole squad up the design canvas before projection,
+    // so team quality survives the range change instead of quantising away.
     const auto bump = [strength](uint8_t base) -> uint8_t {
-        const int v = static_cast<int>(base) + static_cast<int>(strength);
-        return static_cast<uint8_t>(v > 15 ? 15 : v);
+        return ProjectAttr(static_cast<int>(base) + static_cast<int>(strength));
     };
 
     team.players[0]  = MakePlayer("Keeper",   1, Position::GK, bump(6), bump(2), bump(8),

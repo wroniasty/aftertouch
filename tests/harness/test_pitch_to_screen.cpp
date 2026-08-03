@@ -53,6 +53,18 @@ TEST_CASE("follow window centres the anchor near screen mid") {
     CHECK(s.y < (3 * kLogicalH) / 4);
 }
 
+TEST_CASE("follow window renders 1 pitch unit per pixel") {
+    // Anything but 1.0 blits 16-px tiles at a fractional size and smears the
+    // pattern weave; sprites go lumpy with it. See C1a §2.1.
+    const DebugView v = WindowAround(kCentreSpotX, kCentreSpotY);
+    CHECK(PitchUniformScale(v) == doctest::Approx(1.f));
+
+    const auto a = PitchToScreen(kCentreSpotX, kCentreSpotY, v);
+    const auto b = PitchToScreen(static_cast<int16_t>(kCentreSpotX + 64),
+                                 kCentreSpotY, v);
+    CHECK(b.x - a.x == 64);
+}
+
 TEST_CASE("follow window clamps at dead-ball corners") {
     const DebugView tl = WindowAround(kViewMinX, kViewMinY);
     CHECK(tl.min_x == kViewMinX);

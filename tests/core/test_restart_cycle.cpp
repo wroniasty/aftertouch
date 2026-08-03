@@ -77,7 +77,27 @@ TEST_CASE("restart cycle reaches InProgress") {
 TEST_CASE("scripted restart cycle hash is stable") {
     const uint64_t a = RunRestartCycle();
     CHECK(a == RunRestartCycle());
-    constexpr uint64_t kExpected = 0xeedb953c32696a2full;
+    // Re-pinned B13 / R4: the corner turn masks. There are four of them, one per
+    // corner flag, where this engine reused the two penalty arcs — so a taker in
+    // the top-left corner was previously permitted octants that face out of the
+    // pitch. A CPU taker is additionally denied the horizontal axis.
+    //
+    // Previously: repinned when MatchPhase::SetPiece was added — a stopped
+    // throw-in used to leak the previous phase through HashState.
+    // Re-pinned B13 / R6 (pass fixes): pass targeting is the Amiga's — no range
+    // limit, cone anchored at the ball at +-22.5 degrees, aim ray extended past the
+    // receiver — and the post-kick lockout no longer blocks team-mates from
+    // receiving. Pass strength and the Passing bonus are now the sourced tables.
+    // Re-pinned B13 / R7 (goalkeeper): the keeper's resting destination is the
+    // Amiga arc-and-band map — a 103px arc across his goal and a 27px depth
+    // band — instead of the midpoint between the ball and his own goal line on
+    // a 254px arc, which sent him to the halfway line whenever the ball was at
+    // the far end. Both keeper callers now share one formula.
+    // Re-pinned B13 / R8 (restart placement): a restart now puts the ball on its
+    // spot instead of where it crossed the line — goal kicks at the six-yard box
+    // (396/276, y 154/744), corners at the flag, throw-ins pinned to the
+    // touchline — and the keeper takes his own goal kick.
+    constexpr uint64_t kExpected = 0x94cd3b89b64b247cull;
     CAPTURE(a);
     CHECK(a == kExpected);
 }

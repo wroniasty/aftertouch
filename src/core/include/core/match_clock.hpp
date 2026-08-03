@@ -71,7 +71,11 @@ inline void SyncPhaseFromClock(MatchState& s) {
         GetGameState(s) == GameState::StartingGame ||
         GetGameState(s) == GameState::PlayersToInitialPositions) {
         s.phase = MatchPhase::KickOff;
+        return;
     }
+    // Stopped for a set piece. Without this the previous phase leaks through and
+    // a throw-in / corner / goal kick keeps reporting InPlay.
+    s.phase = MatchPhase::SetPiece;
 }
 
 // Swap ends: teamPlayingUp / teamStarting become 3 − x (SIMULATION §3).
@@ -150,6 +154,17 @@ inline void EndSecondHalf(MatchState& s) {
 
 // Advance one InProgress tick of clock. May trigger period end.
 inline void UpdateTime(MatchState& s) {
+    // Celebration counter. B13 / R4 started writing this at every goal (the two
+    // match-stream draws) and nothing ticked it down — so it stayed positive for
+    // the rest of the match. The camera's highest-priority branch is
+    // `show_fans_counter > 0 → frozen`, which meant the camera locked onto the
+    // goal that had just been scored and never followed the ball again.
+    //
+    // It is a countdown, so it counts down. Ticked here with the other match
+    // timers, unconditionally, so a goal right on a period boundary still
+    // releases the camera.
+    if (s.globals.show_fans_counter > 0) --s.globals.show_fans_counter;
+
     // Stoppage ceremony (kick-off / half-time).
     if (GetPl(s) != GameStatePl::InProgress) {
         if (s.clock.stoppage_event_timer > 0) {

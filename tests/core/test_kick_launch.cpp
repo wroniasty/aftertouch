@@ -37,13 +37,15 @@ MatchState MakeKickReady() {
 TEST_CASE("shot launch sets speed height lockout and spin") {
     MatchState s = MakeKickReady();
     CHECK(ApplyKickOrPass(s, 0));
-    CHECK(s.ball.speed == kBallKickingSpeed); // midfield, not goalward N from centre? 
-    // Centre with team_playing_up=1 side0 attacks top → N is goalward; outside box → Velocity bonus 0.
+    // Centre spot: on the halfway line, so a goalward N kick is a long shot
+    // with a Velocity-0 bonus — the same speed as no bonus at all.
+    CHECK(s.ball.speed == kBallKickingSpeed);
     CHECK(s.ball.delta.z.Raw() == kBallKickingDeltaZRaw);
     CHECK(s.sides[0].control.player_has_ball == 0);
     CHECK(s.sides[0].control.pass_kick_timer == kPassKickLockoutTicks);
     CHECK(s.sides[0].control.ball_can_be_controlled == 0);
-    CHECK(s.sides[0].control.spin_timer == 0);
+    // Armed, not open: the window's first sample is the next Step (B6a / S2).
+    CHECK(s.sides[0].control.spin_timer == kSpinArmed);
     CHECK(s.sides[0].control.pass_in_progress == 0);
     CHECK(s.sides[0].control.controlled_pl_direction == static_cast<int16_t>(Dir::N));
     CHECK(s.ball.dest_y == static_cast<int16_t>(449 - 1000));
@@ -67,7 +69,11 @@ TEST_CASE("pass launch sets pass_in_progress") {
     CHECK(ApplyKickOrPass(s, 0));
     CHECK(s.sides[0].control.pass_in_progress == 1);
     CHECK(s.sides[0].control.pass_kick_timer == kPassKickLockoutTicks);
-    CHECK(s.ball.dest_y == 400);
+    // The aim point is the ball->receiver ray extended past the pitch edge, not
+    // the receiver's own position: the ball must travel *through* him. Direction
+    // is what is asserted here; the aim point itself is off the pitch by design.
+    CHECK(s.ball.dest_x == s.ball.pos.x.Whole());
+    CHECK(s.ball.dest_y < 400);
     CHECK(s.ball.delta.z.Raw() == kBallPassingDeltaZRaw);
     CHECK(s.ball.pos.z.Whole() == 0);
 }
