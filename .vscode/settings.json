@@ -1,0 +1,18 @@
+{
+  "cmake.configurePreset": "win-debug",
+  "cmake.buildPreset": "win-debug",
+
+  // clangd is the language server here — C_Cpp.intelliSenseEngine is "disabled"
+  // in user settings. See .clangd for the compile-database location.
+  "clangd.arguments": [
+    "--compile-commands-dir=${workspaceFolder}/build/win-debug",
+    "--background-index",
+    "--header-insertion=never",
+    "--all-scopes-completion",
+    "--completion-style=detailed"
+  ],
+
+  "files.associations": {
+    "*.hpp": "cpp"
+  }
+}

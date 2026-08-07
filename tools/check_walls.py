@@ -102,6 +102,12 @@ for f in sources("src"):
     # as the shell, outside Wall 1 (src/core) by design.
     if rel.startswith("src/tools/trace_viewer/"):
         continue
+    # C3: sprite_viewer is a tools/ GUI for inspecting the player banks and the
+    # animation tables that drive them. Same reasoning as trace_viewer -- it is an
+    # instrument, not shipped chrome, and wall 2 exists to keep imgui out of the
+    # game's screen logic rather than out of the toolbox.
+    if rel.startswith("src/tools/sprite_viewer/"):
+        continue
     text = f.read_text(encoding="utf-8", errors="ignore")
     for inc in INCLUDE.findall(text):
         if "imgui" in inc.lower():

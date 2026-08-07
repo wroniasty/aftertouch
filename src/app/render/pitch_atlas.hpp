@@ -1,9 +1,9 @@
 #pragma once
 
 #include "render/asset_source.hpp"
+#include "render/indexed_sprite.hpp"
 #include "render/pitch_view.hpp"
 
-#include <span>
 #include <vector>
 
 struct SDL_Renderer;
@@ -38,12 +38,7 @@ private:
     uint16_t                       tile_h_ = 0;
 };
 
-// Expand a sprite sheet through a palette (or default ramp) and draw centred
-// on (screen_x, screen_y) at `scale` (nearest). Index 0 is always transparent
-// (SWOS sprite convention; palette RGB for 0 is often opaque green).
-// Textures are cached by pixel pointer for the process lifetime.
-void DrawIndexedSprite(SDL_Renderer* r, const SpriteSheet& sheet,
-                       std::span<const uint8_t> palette_rgba, uint32_t palette_count,
-                       float screen_x, float screen_y, float scale);
+// DrawIndexedSprite now lives in render/indexed_sprite.hpp, included above so
+// existing callers keep compiling. New code should include it directly.
 
 } // namespace at::render

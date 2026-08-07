@@ -152,6 +152,16 @@ target_link_libraries(fuzz_tests PRIVATE at_assets at_data doctest)
 add_test(NAME fuzz_tests COMMAND fuzz_tests)
 
 # ---------------------------------------------------------------------------
+# src/tools model layers — the pure halves of the GUI tools (no SDL, no ImGui)
+# ---------------------------------------------------------------------------
+add_executable(tools_tests tools/test_sprite_preview.cpp)
+target_include_directories(tools_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/tools/sprite_viewer
+)
+target_link_libraries(tools_tests PRIVATE at_core at_asset_source doctest)
+add_test(NAME tools_tests COMMAND tools_tests)
+
+# ---------------------------------------------------------------------------
 # Wall check
 # ---------------------------------------------------------------------------
 if(Python3_FOUND)

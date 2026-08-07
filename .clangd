@@ -1,0 +1,12 @@
+# clangd project config.
+#
+# The compile database lives under the CMake preset's binary dir
+# (CMakePresets.json: binaryDir = build/${presetName}), not build/, so clangd's
+# default discovery never finds it. Point it there explicitly.
+#
+# Switch this to build/win-release if you work against that preset instead.
+CompileFlags:
+  CompilationDatabase: build/win-debug
+
+Diagnostics:
+  UnusedIncludes: None
